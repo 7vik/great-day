@@ -1,92 +1,82 @@
-# Obsidian Sample Plugin
+# Great Day
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+An Obsidian plugin that syncs your daily notes with your TODOs file. When you create a new daily note, it pulls in today's exercise plan, food plan, and a smart sample of week/month/year tasks. At midnight, it syncs back — checking off completed tasks in your TODOs and appending any new tasks you added during the day.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## How it works
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+### Daily note creation
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+Run the **Create today's daily note** command (or **Create daily note for…** to pick a date). The plugin reads your `TODOs.md` and generates a daily note with:
 
-## First time developing plugins?
+1. **Exercise** — the exercise routine for today's day of the week
+2. **Food** — the food plan row for today's day of the week
+3. **Today** — any day-scope tasks from your TODOs
+4. **This week** — a sampled subset of your week tasks (proportional to days left)
+5. **This month** — a sampled subset of your month tasks
+6. **This year** — a sampled subset of your year tasks
+7. **Weekly review** — if today is your configured review day (default: Monday)
+8. **New tasks** — a section where you add new tasks with scope tags
 
-Quick starting guide for new plugin devs:
+### Task sampling
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+For week/month/year tasks, the plugin shows `ceil(total_tasks / days_remaining)` tasks — so if there are 10 week tasks and 3 days left (including today), you'll see ~4 tasks. This ensures you work through tasks at a steady pace without being overwhelmed.
 
-## Releasing new releases
+### New tasks
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+In the **New tasks** section of your daily note, add tasks with a scope tag at the end:
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+- `- [ ] Buy groceries (D)` → goes to the **Day** section of TODOs
+- `- [ ] Write blog post (W)` → goes to the **Week** section
+- `- [ ] Read paper (M)` → goes to the **Month** section
+- `- [ ] Plan trip (Y)` → goes to the **Year** section
 
-## Adding your plugin to the community plugin list
+### Midnight rollover
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+At midnight (or when Obsidian starts the next day), the plugin syncs yesterday's daily note:
 
-## How to use
+- **Checked tasks** → marked as done in TODOs
+- **Unchecked tasks** → stay in TODOs (automatically rolled back)
+- **New tagged tasks** → appended to the appropriate TODOs section
 
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+## TODOs.md format
 
-## Manually installing the plugin
+Your TODOs file should have these sections:
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+```markdown
+# Food Plan
+| Day | ... | ... |
+| ... | ... | ... |
 
-## Improve code quality with eslint
+# Exercise Plan
+Monday to Friday:
+- ...
+Saturday:
+- ...
+Sunday:
+- ...
 
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+# Week
+- [ ] task...
 
-## Funding URL
+# Month
+- [ ] task...
 
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+# Year
+- [ ] task...
 ```
 
-If you have multiple URLs, you can also do:
+## Settings
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
-```
+- **Todos file path** — path to your TODOs file (default: `TODOs.md`)
+- **Daily notes folder** — where daily notes are stored (default: `Daily Notes`)
+- **Date format** — moment.js format for filenames (default: `YYYY-MM-DD`)
+- **Week/Month/Year tasks to show** — override the auto-sampling count
+- **Auto rollover at midnight** — enable/disable automatic syncing
+- **Weekly todos review** — add a review task on a specific day each week
+- **New tasks heading** — heading text for the new-tasks section
 
-## API Documentation
+## Commands
 
-See https://docs.obsidian.md
+- **Create today's daily note** — generates and opens today's note
+- **Create daily note for…** — pick a date and generate that note
+- **Sync yesterday's tasks back to todos** — manually trigger the rollover sync

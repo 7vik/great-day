@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "great-day",
+	"name": "Great Day",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Syncs your daily notes with your TODOs — pulls today's exercise, food plan, and sampled tasks into each new daily note, and syncs back at midnight.",
+	"author": "7vik",
 	"isDesktopOnly": false
 }
