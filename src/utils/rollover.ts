@@ -64,9 +64,9 @@ function parseDailyNote(
 
 /**
  * Syncs yesterday's daily note back to TODOs:
- * - Checked pulled tasks → mark as done in TODOs
+ * - Checked pulled tasks → removed from TODOs
  * - Unchecked pulled tasks → stay in TODOs (rolled back)
- * - New tasks with (D)/(W)/(M)/(Y) tags → append to the right TODOs section
+ * - New tasks with (D)/(W)/(M)/(Y) tags → appended to the right TODOs section
  */
 export async function syncRollover(
 	app: App,
@@ -98,23 +98,37 @@ export async function syncRollover(
 		appended: { day: [], week: [], month: [], year: [] },
 	};
 
-	// Process pulled tasks
+	// Collect texts of completed and uncompleted tasks from the daily note
+	const completedTexts = new Set<string>();
 	for (const task of parsed.pulledTasks) {
-		for (const scope of ['day', 'week', 'month', 'year'] as TaskScope[]) {
-			const idx = data.tasks[scope].findIndex(
-				(t) => t.text === task.text,
-			);
-			if (idx >= 0) {
-				if (task.done) {
-					data.tasks[scope][idx]!.done = true;
-					data.tasks[scope][idx]!.raw = data.tasks[scope][idx]!.raw.replace(
-						'- [ ]', '- [x]',
-					);
-					result.completed.push(task.text);
+		if (task.done) {
+			completedTexts.add(task.text);
+		}
+	}
+
+	// Remove completed tasks from TODOs (also remove their sub-tasks)
+	for (const scope of ['day', 'week', 'month', 'year'] as TaskScope[]) {
+		const indicesToRemove = new Set<number>();
+		for (let i = 0; i < data.tasks[scope].length; i++) {
+			const task = data.tasks[scope][i]!;
+			if (completedTexts.has(task.text)) {
+				indicesToRemove.add(i);
+				result.completed.push(task.text);
+				// Also remove sub-tasks (indented tasks that follow)
+				for (let j = i + 1; j < data.tasks[scope].length; j++) {
+					const subTask = data.tasks[scope][j]!;
+					if (subTask.indent > task.indent) {
+						indicesToRemove.add(j);
+					} else {
+						break;
+					}
 				}
-				break;
 			}
 		}
+		// Filter out removed tasks
+		data.tasks[scope] = data.tasks[scope].filter(
+			(_, idx) => !indicesToRemove.has(idx),
+		);
 	}
 
 	// Process new tasks: append to appropriate section
