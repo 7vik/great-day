@@ -43,17 +43,15 @@ export function parseTodos(raw: string): TodosData {
 	for (const line of lines) {
 		const trimmedLower = line.trim().toLowerCase();
 
-		// Detect food plan heading
+		// Detect food plan heading — don't push the heading itself
 		if (trimmedLower.startsWith('# food plan')) {
 			currentSection = 'food';
-			foodPlanLines.push(line);
 			continue;
 		}
 
-		// Detect exercise plan heading
+		// Detect exercise plan heading — don't push the heading itself
 		if (trimmedLower.startsWith('# exercise plan')) {
 			currentSection = 'exercise';
-			exercisePlanLines.push(line);
 			continue;
 		}
 
@@ -180,6 +178,13 @@ export function stripTag(text: string): string {
 	return text.replace(TAG_RE, '').trimEnd();
 }
 
+/** Builds a task line with proper indentation (using tabs). */
+function buildTaskLine(task: Task): string {
+	const indent = '\t'.repeat(task.indent);
+	const checkbox = task.done ? '- [x]' : '- [ ]';
+	return `${indent}${checkbox} ${task.text}`;
+}
+
 /** Serialises TodosData back into file text. */
 export function serialiseTodos(data: TodosData): string {
 	const sections: string[] = [];
@@ -206,10 +211,8 @@ export function serialiseTodos(data: TodosData): string {
 	for (const scope of ['day', 'week', 'month', 'year'] as TaskScope[]) {
 		const scopeTasks = data.tasks[scope];
 		if (scopeTasks.length > 0) {
-			sections.push(scopeHeading[scope]);
-			for (const t of scopeTasks) {
-				sections.push(t.raw);
-			}
+			const taskLines = scopeTasks.map((t) => buildTaskLine(t));
+			sections.push(scopeHeading[scope] + '\n' + taskLines.join('\n'));
 		}
 	}
 

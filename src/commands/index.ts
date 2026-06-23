@@ -2,6 +2,19 @@ import type GreatDayPlugin from '../main';
 import { Notice, moment } from 'obsidian';
 import { createDailyNote } from '../utils/dailyNoteGenerator';
 import { syncRollover } from '../utils/rollover';
+import type { SyncResult } from '../types';
+
+/** Shows a summary notice of the rollover result. */
+function showRolloverNotice(result: SyncResult): void {
+	const totalAppended =
+		result.appended.day.length +
+		result.appended.week.length +
+		result.appended.month.length +
+		result.appended.year.length;
+	new Notice(
+		`Great day: synced — ${result.completed.length} completed, ${result.rolledBack.length} rolled back, ${totalAppended} new task(s) added to todos.`,
+	);
+}
 
 /** Registers all plugin commands. */
 export function registerCommands(plugin: GreatDayPlugin): void {
@@ -19,14 +32,16 @@ export function registerCommands(plugin: GreatDayPlugin): void {
 		callback: async () => {
 			const yesterday = moment().subtract(1, 'day');
 			const result = await syncRollover(plugin.app, plugin.settings, yesterday);
-			const totalAppended =
-				result.appended.day.length +
-				result.appended.week.length +
-				result.appended.month.length +
-				result.appended.year.length;
-			new Notice(
-				`Great day: synced — ${result.completed.length} completed, ${result.rolledBack.length} rolled back, ${totalAppended} new task(s) added to todos.`,
-			);
+			showRolloverNotice(result);
+		},
+	});
+
+	plugin.addCommand({
+		id: 'end-day',
+		name: 'End day',
+		callback: async () => {
+			const result = await syncRollover(plugin.app, plugin.settings, moment());
+			showRolloverNotice(result);
 		},
 	});
 
