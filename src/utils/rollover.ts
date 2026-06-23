@@ -13,11 +13,14 @@ interface ParsedTask {
 	raw: string;
 	done: boolean;
 	text: string;
+	indent: number;
 }
 
 /** Result of parsing a daily note. */
 interface DailyNoteTasks {
+	/** Tasks pulled from TODOs (under the Tasks wrapper). */
 	pulledTasks: ParsedTask[];
+	/** New tasks the user added (in the New tasks section). */
 	newTasks: ParsedTask[];
 }
 
@@ -31,6 +34,7 @@ function parseDailyNote(
 	const newTasks: ParsedTask[] = [];
 
 	let inNewTasksSection = false;
+	let inTasksSection = false;
 
 	for (const line of lines) {
 		const trimmedLower = line.trim().toLowerCase();
@@ -39,22 +43,40 @@ function parseDailyNote(
 		if (headingMatch) {
 			const headingText = headingMatch[1] ?? '';
 			inNewTasksSection = headingText === settings.addTasksHeading.toLowerCase();
+			inTasksSection = false;
 			continue;
 		}
 
 		const taskMatch = line.match(TASK_RE);
 		if (taskMatch) {
+			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
 			const text = taskMatch[3] ?? '';
+			const indent = indentStr.replace(/\t/g, '    ').length;
 			const taskObj: ParsedTask = {
 				raw: line,
 				done: doneChar.toLowerCase() === 'x',
 				text,
+				indent,
 			};
+
 			if (inNewTasksSection) {
 				newTasks.push(taskObj);
+			} else if (inTasksSection) {
+				// Only collect nested tasks (indent > 0), skip the wrapper itself
+				if (indent > 0) {
+					pulledTasks.push(taskObj);
+				}
 			} else {
-				pulledTasks.push(taskObj);
+				// Detect the "Tasks" wrapper checkbox
+				if (trimmedLower === '- [ ] tasks' || trimmedLower === '- [x] tasks') {
+					inTasksSection = true;
+				}
+			}
+		} else {
+			// Non-task line ends the tasks section context
+			if (inTasksSection && trimmedLower === '') {
+				inTasksSection = false;
 			}
 		}
 	}
@@ -98,7 +120,7 @@ export async function syncRollover(
 		appended: { day: [], week: [], month: [], year: [] },
 	};
 
-	// Collect texts of completed and uncompleted tasks from the daily note
+	// Collect texts of completed tasks from the daily note
 	const completedTexts = new Set<string>();
 	for (const task of parsed.pulledTasks) {
 		if (task.done) {
@@ -134,6 +156,7 @@ export async function syncRollover(
 	// Process new tasks: append to appropriate section
 	for (const task of parsed.newTasks) {
 		if (task.done) continue;
+		if (!task.text.trim()) continue; // skip empty placeholder
 		const tagResult = extractNewTaskTag(task.text);
 		if (tagResult) {
 			const cleanText = stripTag(task.text);

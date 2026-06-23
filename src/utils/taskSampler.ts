@@ -7,6 +7,8 @@ import { moment } from 'obsidian';
  * If there are `total` tasks and `daysLeft` days remaining,
  * show `ceil(total / daysLeft)` tasks (but at least 1, at most `total`).
  * If `daysLeft <= 1`, show all remaining tasks.
+ *
+ * When a parent task is sampled, its nested children are included.
  */
 export function sampleTasks(
 	tasks: Task[],
@@ -15,19 +17,43 @@ export function sampleTasks(
 	const available = tasks.filter((t) => !t.done);
 	if (available.length === 0) return [];
 
-	if (daysLeft <= 1) return available;
+	if (daysLeft <= 1) return withChildren(available, tasks);
 
 	const count = Math.ceil(available.length / daysLeft);
 	const clamped = Math.max(1, Math.min(count, available.length));
 
-	if (clamped >= available.length) return available;
+	// Pick top-level tasks (indent 0) for sampling, then include their children
+	const topLevel = available.filter((t) => t.indent === 0);
+	if (topLevel.length === 0) return withChildren(available, tasks);
 
-	const result: Task[] = [];
-	const step = available.length / clamped;
+	if (clamped >= topLevel.length) return withChildren(topLevel, tasks);
+
+	const picked: Task[] = [];
+	const step = topLevel.length / clamped;
 	for (let i = 0; i < clamped; i++) {
 		const idx = Math.floor(i * step);
-		const task = available[idx];
-		if (task) result.push(task);
+		const task = topLevel[idx];
+		if (task) picked.push(task);
+	}
+	return withChildren(picked, tasks);
+}
+
+/** Given a set of picked parent tasks, include their nested children from the full list. */
+function withChildren(picked: Task[], allTasks: Task[]): Task[] {
+	const result: Task[] = [];
+	for (const parent of picked) {
+		result.push(parent);
+		// Find children that follow this task in the full list
+		const parentIdx = allTasks.indexOf(parent);
+		for (let i = parentIdx + 1; i < allTasks.length; i++) {
+			const child = allTasks[i];
+			if (!child) break;
+			if (child.indent > parent.indent) {
+				result.push(child);
+			} else {
+				break;
+			}
+		}
 	}
 	return result;
 }

@@ -1,6 +1,7 @@
 import type { App } from 'obsidian';
 import { TFile, Notice, normalizePath, moment } from 'obsidian';
 import type { GreatDaySettings } from '../settings';
+import type { Task } from '../types';
 import {
 	parseTodos,
 	getFoodForDay,
@@ -31,6 +32,44 @@ async function readTodosFile(
 	return app.vault.read(file);
 }
 
+/** Parses a food table row like `| **Wed** | Chana... | Wheat pasta... |` into lunch/dinner. */
+function parseFoodRow(row: string): { lunch: string; dinner: string } | null {
+	const cells = row.split('|').map((c) => c.trim()).filter((c) => c.length > 0);
+	if (cells.length < 3) return null;
+	// First cell is the day, second is lunch, third is dinner
+	return {
+		lunch: cells[1] ?? '',
+		dinner: cells[2] ?? '',
+	};
+}
+
+/** Extracts exercise items as a flat list (skipping heading lines like "Monday to Friday:"). */
+function extractExerciseItems(exerciseText: string): string[] {
+	const lines = exerciseText.split('\n');
+	const items: string[] = [];
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		// Skip lines that look like section headers (end with colon, no dash)
+		if (trimmed.endsWith(':') && !trimmed.startsWith('-')) continue;
+		// Strip leading "- " if present
+		const text = trimmed.replace(/^-\s*/, '');
+		if (text) items.push(text);
+	}
+	return items;
+}
+
+/** Formats a task and its children as checkbox lines with proper indentation. */
+function formatTaskLines(tasks: Task[], startIndent: number): string[] {
+	const lines: string[] = [];
+	for (const task of tasks) {
+		const indent = '\t'.repeat(startIndent + (task.indent > 0 ? 1 : 0));
+		const checkbox = task.done ? '- [x]' : '- [ ]';
+		lines.push(`${indent}${checkbox} ${task.text}`);
+	}
+	return lines;
+}
+
 /** Generates the daily note content. */
 export async function generateDailyNoteContent(
 	app: App,
@@ -44,79 +83,79 @@ export async function generateDailyNoteContent(
 	const dayName = dayShort(date);
 	const fullDayName = dayLong(date);
 
-	const sections: string[] = [];
+	const lines: string[] = [];
 
 	// Header
-	const dateStr = formatDate(date, settings.dateFormat);
-	sections.push(`# ${dateStr} — ${fullDayName}`);
+	lines.push('# TODOs');
 
-	// Exercise plan
-	const exercise = getExerciseForDay(data.exercisePlanText, fullDayName);
-	if (exercise) {
-		sections.push('## Exercise\n');
-		sections.push(exercise);
+	// Exercise
+	const exerciseText = getExerciseForDay(data.exercisePlanText, fullDayName);
+	if (exerciseText) {
+		const exerciseItems = extractExerciseItems(exerciseText);
+		lines.push('- [ ] Exercise');
+		for (const item of exerciseItems) {
+			lines.push(`\t- [ ] ${item}`);
+		}
 	}
 
-	// Food plan
-	const foodLine = getFoodForDay(data.foodPlanLines, dayName);
-	if (foodLine) {
-		sections.push('## Food\n');
-		sections.push(foodLine);
+	// Food
+	const foodRow = getFoodForDay(data.foodPlanLines, dayName);
+	if (foodRow) {
+		const parsed = parseFoodRow(foodRow);
+		lines.push('- [ ] Food');
+		if (parsed) {
+			lines.push(`\t- [ ] Lunch: ${parsed.lunch}`);
+			lines.push(`\t- [ ] Dinner: ${parsed.dinner}`);
+		}
 	}
 
-	// Day tasks (from the Day section in TODOs, if any)
+	// Tasks: combine day, sampled week, sampled month, sampled year
 	const dayTasks = data.tasks.day.filter((t) => !t.done);
-	if (dayTasks.length > 0) {
-		sections.push('## Today\n');
-		for (const t of dayTasks) {
-			sections.push(t.raw);
-		}
-	}
-
-	// Week tasks
 	const weekTasks = sampleForScope(data.tasks.week, 'week', date);
-	if (weekTasks.length > 0) {
-		sections.push('## This week\n');
-		for (const t of weekTasks) {
-			sections.push(t.raw);
-		}
-	}
-
-	// Month tasks
 	const monthTasks = sampleForScope(data.tasks.month, 'month', date);
-	if (monthTasks.length > 0) {
-		sections.push('## This month\n');
-		for (const t of monthTasks) {
-			sections.push(t.raw);
-		}
-	}
-
-	// Year tasks
 	const yearTasks = sampleForScope(data.tasks.year, 'year', date);
-	if (yearTasks.length > 0) {
-		sections.push('## This year\n');
-		for (const t of yearTasks) {
-			sections.push(t.raw);
+
+	const allTasks = [...dayTasks, ...weekTasks, ...monthTasks, ...yearTasks];
+	if (allTasks.length > 0) {
+		lines.push('- [ ] Tasks');
+		// Day tasks at indent 1
+		if (dayTasks.length > 0) {
+			for (const line of formatTaskLines(dayTasks, 1)) {
+				lines.push(line);
+			}
+		}
+		// Week tasks at indent 1
+		if (weekTasks.length > 0) {
+			for (const line of formatTaskLines(weekTasks, 1)) {
+				lines.push(line);
+			}
+		}
+		// Month tasks at indent 1
+		if (monthTasks.length > 0) {
+			for (const line of formatTaskLines(monthTasks, 1)) {
+				lines.push(line);
+			}
+		}
+		// Year tasks at indent 1
+		if (yearTasks.length > 0) {
+			for (const line of formatTaskLines(yearTasks, 1)) {
+				lines.push(line);
+			}
 		}
 	}
 
 	// Weekly review task
-	if (settings.weeklyReview) {
-		const reviewDay = settings.weeklyReviewDay;
-		if (date.day() === reviewDay) {
-			sections.push('## Weekly review\n');
-			sections.push('- [ ] Review and update TODOs');
-		}
+	if (settings.weeklyReview && date.day() === settings.weeklyReviewDay) {
+		lines.push('- [ ] Review and update TODOs');
 	}
 
 	// New tasks section
-	sections.push(`## ${settings.addTasksHeading}\n`);
-	sections.push(
-		'<!-- Add new tasks here with (D) for day, (W) for week, (M) for month, (Y) for year. -->',
-	);
-	sections.push('<!-- Example: - [ ] Buy groceries (D) -->');
+	lines.push(`## ${settings.addTasksHeading}`);
+	lines.push('- [ ] ');
+	lines.push('');
+	lines.push('---');
 
-	return sections.join('\n\n') + '\n';
+	return lines.join('\n') + '\n';
 }
 
 /** Creates or opens the daily note for the given date. */
