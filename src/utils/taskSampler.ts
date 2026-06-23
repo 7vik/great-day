@@ -2,40 +2,57 @@ import type { Task, TaskScope } from '../types';
 import { daysLeftInWeek, daysLeftInMonth, daysLeftInYear } from './dateUtils';
 import { moment } from 'obsidian';
 
+/** Fisher-Yates shuffle (returns a new array, doesn't mutate input). */
+function shuffle<T>(arr: T[]): T[] {
+	const result = [...arr];
+	for (let i = result.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[result[i], result[j]] = [result[j]!, result[i]!];
+	}
+	return result;
+}
+
 /**
  * Samples tasks from a scope's task list.
- * If there are `total` tasks and `daysLeft` days remaining,
- * show `ceil(total / daysLeft)` tasks (but at least 1, at most `total`).
- * If `daysLeft <= 1`, show all remaining tasks.
+ * Returns ceil(available / daysLeft) top-level tasks (min 1, max all).
+ * When a parent task is picked, its nested children are included.
+ * Picked tasks are shuffled randomly.
  *
- * When a parent task is sampled, its nested children are included.
+ * For 'day' scope, all tasks are returned (no sampling, no shuffle).
  */
 export function sampleTasks(
 	tasks: Task[],
 	daysLeft: number,
+	shuffleResults: boolean,
 ): Task[] {
 	const available = tasks.filter((t) => !t.done);
 	if (available.length === 0) return [];
 
-	if (daysLeft <= 1) return withChildren(available, tasks);
-
-	const count = Math.ceil(available.length / daysLeft);
-	const clamped = Math.max(1, Math.min(count, available.length));
-
-	// Pick top-level tasks (indent 0) for sampling, then include their children
 	const topLevel = available.filter((t) => t.indent === 0);
-	if (topLevel.length === 0) return withChildren(available, tasks);
+	// If no top-level tasks, treat all as top-level
+	const candidates = topLevel.length > 0 ? topLevel : available;
 
-	if (clamped >= topLevel.length) return withChildren(topLevel, tasks);
-
-	const picked: Task[] = [];
-	const step = topLevel.length / clamped;
-	for (let i = 0; i < clamped; i++) {
-		const idx = Math.floor(i * step);
-		const task = topLevel[idx];
-		if (task) picked.push(task);
+	if (daysLeft <= 1) {
+		return withChildren(
+			shuffleResults ? shuffle(candidates) : candidates,
+			available,
+		);
 	}
-	return withChildren(picked, tasks);
+
+	const count = Math.ceil(candidates.length / daysLeft);
+	const clamped = Math.max(1, Math.min(count, candidates.length));
+
+	if (clamped >= candidates.length) {
+		return withChildren(
+			shuffleResults ? shuffle(candidates) : candidates,
+			available,
+		);
+	}
+
+	// Shuffle candidates, then pick the first `clamped` of them
+	const shuffled = shuffleResults ? shuffle(candidates) : candidates;
+	const picked = shuffled.slice(0, clamped);
+	return withChildren(picked, available);
 }
 
 /** Given a set of picked parent tasks, include their nested children from the full list. */
@@ -43,7 +60,6 @@ function withChildren(picked: Task[], allTasks: Task[]): Task[] {
 	const result: Task[] = [];
 	for (const parent of picked) {
 		result.push(parent);
-		// Find children that follow this task in the full list
 		const parentIdx = allTasks.indexOf(parent);
 		for (let i = parentIdx + 1; i < allTasks.length; i++) {
 			const child = allTasks[i];
@@ -58,18 +74,23 @@ function withChildren(picked: Task[], allTasks: Task[]): Task[] {
 	return result;
 }
 
-/** Samples tasks for each scope based on the configured count and days remaining. */
+/** Samples tasks for each scope based on days remaining. */
 export function sampleForScope(
 	tasks: Task[],
 	scope: TaskScope,
 	date: moment.Moment,
 ): Task[] {
-	let daysLeft: number;
 	switch (scope) {
-		case 'week': daysLeft = daysLeftInWeek(date); break;
-		case 'month': daysLeft = daysLeftInMonth(date); break;
-		case 'year': daysLeft = daysLeftInYear(date); break;
-		default: daysLeft = 1; break;
+		case 'day':
+			// All day tasks, no shuffle, no sampling
+			return tasks.filter((t) => !t.done);
+		case 'week':
+			return sampleTasks(tasks, daysLeftInWeek(date), true);
+		case 'month':
+			return sampleTasks(tasks, daysLeftInMonth(date), true);
+		case 'year':
+			return sampleTasks(tasks, daysLeftInYear(date), true);
+		default:
+			return [];
 	}
-	return sampleTasks(tasks, daysLeft);
 }
