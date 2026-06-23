@@ -1,7 +1,5 @@
 import type { Task, TaskScope, TodosData } from '../types';
 
-/** Maps heading names to task scopes. */
-
 /** Matches a checkbox task line: `- [ ]` or `- [x]` (case-insensitive). */
 const TASK_RE = /^(\s*)- \[([ xX])\] (.*)$/;
 
@@ -20,10 +18,11 @@ function tagToScope(ch: string): TaskScope | null {
 }
 
 /** Tracks which section we're currently parsing. */
-type Section = 'food' | 'exercise' | 'week' | 'month' | 'year' | null;
+type Section = 'food' | 'exercise' | 'day' | 'week' | 'month' | 'year' | null;
 
 /** Checks if a line is a heading we recognise for task sections. */
 function matchTaskSection(trimmedLower: string): Section {
+	if (trimmedLower === '# day' || trimmedLower === '## day') return 'day';
 	if (trimmedLower === '# week' || trimmedLower === '## week') return 'week';
 	if (trimmedLower === '# month' || trimmedLower === '## month') return 'month';
 	if (trimmedLower === '# year' || trimmedLower === '## year') return 'year';
@@ -87,7 +86,7 @@ export function parseTodos(raw: string): TodosData {
 
 		// Parse task lines in task sections
 		const taskMatch = line.match(TASK_RE);
-		if (taskMatch && currentSection && (currentSection === 'week' || currentSection === 'month' || currentSection === 'year')) {
+		if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year')) {
 			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
 			const text = taskMatch[3] ?? '';

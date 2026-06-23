@@ -26,7 +26,7 @@ export interface GreatDaySettings {
 
 export const DEFAULT_SETTINGS: GreatDaySettings = {
 	todosFilePath: 'TODOs.md',
-	dailyNotesFolder: 'Daily Notes',
+	dailyNotesFolder: 'Daily Notes/{{year}}',
 	dateFormat: 'YYYY-MM-DD',
 	weekTaskCount: 4,
 	monthTaskCount: 3,
@@ -64,10 +64,10 @@ export class GreatDaySettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Daily notes folder')
-			.setDesc('Folder where daily notes are stored.')
+			.setDesc('Folder where daily notes are stored. Use {{year}} for the current year.')
 			.addText((text) =>
 				text
-					.setPlaceholder('Daily notes')
+					.setPlaceholder('Daily Notes/{{year}}')
 					.setValue(this.plugin.settings.dailyNotesFolder)
 					.onChange(async (value) => {
 						this.plugin.settings.dailyNotesFolder = value;

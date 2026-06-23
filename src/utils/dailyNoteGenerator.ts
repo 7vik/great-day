@@ -9,6 +9,10 @@ import {
 import { sampleForScope } from './taskSampler';
 import { dayShort, dayLong, formatDate } from './dateUtils';
 
+/** Resolves {{year}} in a folder path to the current year. */
+export function resolveFolder(path: string, date: moment.Moment): string {
+	return path.replace('{{year}}', String(date.year()));
+}
 
 /** Reads the TODOs file from the vault. */
 async function readTodosFile(
@@ -20,7 +24,7 @@ async function readTodosFile(
 	);
 	if (!file || !(file instanceof TFile)) {
 		new Notice(
-			`Great Day: TODOs file not found at "${settings.todosFilePath}". Create it or update the path in settings.`,
+			'Great day: todos file not found at "' + settings.todosFilePath + '". Create it or update the path in settings.',
 		);
 		return '';
 	}
@@ -99,14 +103,13 @@ export async function generateDailyNoteContent(
 	// Weekly review task
 	if (settings.weeklyReview) {
 		const reviewDay = settings.weeklyReviewDay;
-		// moment: 0=Sun, 1=Mon…6=Sat; settings uses same convention
 		if (date.day() === reviewDay) {
 			sections.push('## Weekly review\n');
 			sections.push('- [ ] Review and update TODOs');
 		}
 	}
 
-	// New tasks section (where user adds tasks with (D), (W), (M), (Y) tags)
+	// New tasks section
 	sections.push(`## ${settings.addTasksHeading}\n`);
 	sections.push(
 		'<!-- Add new tasks here with (D) for day, (W) for week, (M) for month, (Y) for year. -->',
@@ -123,7 +126,7 @@ export async function createDailyNote(
 	date: moment.Moment,
 ): Promise<TFile | null> {
 	const dateStr = formatDate(date, settings.dateFormat);
-	const folder = normalizePath(settings.dailyNotesFolder);
+	const folder = normalizePath(resolveFolder(settings.dailyNotesFolder, date));
 	const filePath = normalizePath(`${folder}/${dateStr}.md`);
 
 	// Check if file already exists
@@ -134,11 +137,10 @@ export async function createDailyNote(
 		return existing;
 	}
 
-	// Ensure folder exists
-	if (!app.vault.getAbstractFileByPath(folder)) {
-		if (!app.vault.getAbstractFileByPath(folder)) {
-			await app.vault.create(folder + '/.gitkeep', '');
-		}
+	// Ensure folder exists by creating a placeholder file
+	const folderExists = app.vault.getAbstractFileByPath(folder);
+	if (!folderExists) {
+		await app.vault.create(folder + '/.gitkeep', '');
 	}
 
 	// Generate content
@@ -155,7 +157,7 @@ export function getDailyNoteFile(
 	date: moment.Moment,
 ): TFile | null {
 	const dateStr = formatDate(date, settings.dateFormat);
-	const folder = normalizePath(settings.dailyNotesFolder);
+	const folder = normalizePath(resolveFolder(settings.dailyNotesFolder, date));
 	const filePath = normalizePath(`${folder}/${dateStr}.md`);
 	const file = app.vault.getAbstractFileByPath(filePath);
 	if (file && file instanceof TFile) return file;
