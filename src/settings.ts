@@ -2,26 +2,17 @@ import { App, PluginSettingTab, Setting } from 'obsidian';
 import type GreatDayPlugin from './main';
 
 export interface GreatDaySettings {
-	/** Path to the TODOs file (relative to vault root). */
 	todosFilePath: string;
-	/** Folder where daily notes are stored (relative to vault root). */
 	dailyNotesFolder: string;
-	/** Date format for daily note filenames (moment.js format). */
 	dateFormat: string;
-	/** Number of week tasks to sample into each daily note. */
 	weekTaskCount: number;
-	/** Number of month tasks to sample into each daily note. */
 	monthTaskCount: number;
-	/** Number of year tasks to sample into each daily note. */
 	yearTaskCount: number;
-	/** Whether to auto-sync at midnight. */
 	autoRollover: boolean;
-	/** Whether to add a weekly TODOs review task on a specific day. */
 	weeklyReview: boolean;
-	/** Day of week for weekly review (0=Sun … 6=Sat). */
 	weeklyReviewDay: number;
-	/** Heading text for the "add tasks" section in daily notes. */
 	addTasksHeading: string;
+	icsCalendarUrl: string;
 }
 
 export const DEFAULT_SETTINGS: GreatDaySettings = {
@@ -35,6 +26,7 @@ export const DEFAULT_SETTINGS: GreatDaySettings = {
 	weeklyReview: true,
 	weeklyReviewDay: 1,
 	addTasksHeading: 'New tasks',
+	icsCalendarUrl: '',
 };
 
 export class GreatDaySettingTab extends PluginSettingTab {
@@ -173,6 +165,19 @@ export class GreatDaySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.addTasksHeading)
 					.onChange(async (value) => {
 						this.plugin.settings.addTasksHeading = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Google calendar ics URL')
+			.setDesc('Secret ics address from Google calendar settings. Leave empty to disable.')
+			.addText((text) =>
+				text
+					.setPlaceholder('Calendar ics URL')
+					.setValue(this.plugin.settings.icsCalendarUrl)
+					.onChange(async (value) => {
+						this.plugin.settings.icsCalendarUrl = value;
 						await this.plugin.saveSettings();
 					}),
 			);

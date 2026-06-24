@@ -25,6 +25,8 @@ export interface TodosData {
 	foodPlanLines: string[];
 	/** Raw text of the exercise plan section. */
 	exercisePlanText: string;
+	/** Lines from the Reminders section (plain `- item` lines, no checkboxes). */
+	reminderLines: string[];
 	/** Tasks grouped by scope. */
 	tasks: Record<TaskScope, Task[]>;
 }

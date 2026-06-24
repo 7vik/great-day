@@ -21,7 +21,7 @@ function tagToScope(ch: string): TaskScope | null {
 }
 
 /** Tracks which section we're currently parsing. */
-type Section = 'food' | 'exercise' | 'day' | 'week' | 'month' | 'year' | 'scheduled' | null;
+type Section = 'food' | 'reminders' | 'exercise' | 'day' | 'week' | 'month' | 'year' | 'scheduled' | null;
 
 /** Checks if a line is a heading we recognise for task sections. */
 function matchTaskSection(trimmedLower: string): Section {
@@ -49,6 +49,7 @@ export function parseTodos(raw: string): TodosData {
 	const lines = raw.split('\n');
 	const foodPlanLines: string[] = [];
 	const exercisePlanLines: string[] = [];
+	const reminderLines: string[] = [];
 	const tasks: Record<TaskScope, Task[]> = {
 		day: [], week: [], month: [], year: [], scheduled: [],
 	};
@@ -60,6 +61,11 @@ export function parseTodos(raw: string): TodosData {
 
 		if (trimmedLower.startsWith('# food plan')) {
 			currentSection = 'food';
+			continue;
+		}
+
+		if (trimmedLower.startsWith('# reminders')) {
+			currentSection = 'reminders';
 			continue;
 		}
 
@@ -79,6 +85,15 @@ export function parseTodos(raw: string): TodosData {
 				currentSection = null;
 			} else {
 				foodPlanLines.push(line);
+				continue;
+			}
+		}
+
+		if (currentSection === 'reminders') {
+			if (trimmedLower.startsWith('#')) {
+				currentSection = null;
+			} else {
+				reminderLines.push(line);
 				continue;
 			}
 		}
@@ -115,6 +130,7 @@ export function parseTodos(raw: string): TodosData {
 		raw,
 		foodPlanLines,
 		exercisePlanText,
+		reminderLines,
 		tasks,
 	};
 }
@@ -173,6 +189,19 @@ function extractBlock(lines: string[], headingFragment: string): string {
 	return result.join('\n').trim();
 }
 
+/** Extracts reminder items (plain `- text` lines, stripping the dash). */
+export function getReminders(reminderLines: string[]): string[] {
+	const reminders: string[] = [];
+	for (const line of reminderLines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		// Strip leading "- " if present
+		const text = trimmed.replace(/^-\s*/, '');
+		if (text) reminders.push(text);
+	}
+	return reminders;
+}
+
 /** Extracts new-task tags from a task line. Returns the tag and scope, or null. */
 export function extractNewTaskTag(text: string): { tag: string; scope: TaskScope } | null {
 	const match = text.match(TAG_RE);
@@ -207,6 +236,11 @@ export function serialiseTodos(data: TodosData): string {
 	if (data.foodPlanLines.length > 0) {
 		sections.push('# Food Plan');
 		sections.push(data.foodPlanLines.join('\n').trim());
+	}
+
+	if (data.reminderLines.length > 0) {
+		sections.push('# Reminders');
+		sections.push(data.reminderLines.join('\n').trim());
 	}
 
 	if (data.exercisePlanText) {

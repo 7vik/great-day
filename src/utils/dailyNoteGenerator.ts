@@ -1,13 +1,15 @@
 import type { App } from 'obsidian';
-import { TFile, Notice, normalizePath, moment } from 'obsidian';
+import { TFile, Notice, normalizePath, moment, requestUrl } from 'obsidian';
 import type { GreatDaySettings } from '../settings';
 import type { Task } from '../types';
 import {
 	parseTodos,
 	getFoodForDay,
 	getExerciseForDay,
+	getReminders,
 } from './todosParser';
 import { sampleForScope } from './taskSampler';
+import { parseIcsForDate, type CalendarEvent } from './icsParser';
 import { dayShort, dayLong, formatDate } from './dateUtils';
 
 /** Resolves {{year}} in a folder path to the current year. */
@@ -32,7 +34,46 @@ async function readTodosFile(
 	return app.vault.read(file);
 }
 
-/** Parses a food table row like `| **Wed** | Chana... | Wheat pasta... |` into lunch/dinner. */
+/** Fetches and parses calendar events for the given date. */
+async function fetchCalendarEvents(
+	settings: GreatDaySettings,
+	date: moment.Moment,
+): Promise<CalendarEvent[]> {
+	if (!settings.icsCalendarUrl) return [];
+	try {
+		const response = await requestUrl({
+			url: settings.icsCalendarUrl,
+			method: 'GET',
+		});
+		return parseIcsForDate(response.text, date);
+	} catch {
+		new Notice('Great day: failed to fetch calendar events.');
+		return [];
+	}
+}
+
+/** Formats calendar events as task lines. */
+function formatEvents(events: CalendarEvent[]): string[] {
+	const lines: string[] = [];
+	for (const event of events) {
+		let label = event.summary;
+		if (event.allDay) {
+			// All-day event — no time shown
+		} else {
+			const startStr = event.start.format('HH:mm');
+			const endStr = event.end.format('HH:mm');
+			if (startStr === endStr) {
+				label = `${startStr} ${event.summary}`;
+			} else {
+				label = `${startStr}-${endStr} ${event.summary}`;
+			}
+		}
+		lines.push(`\t- [ ] ${label}`);
+	}
+	return lines;
+}
+
+/** Parses a food table row into lunch/dinner. */
 function parseFoodRow(row: string): { lunch: string; dinner: string } | null {
 	const cells = row.split('|').map((c) => c.trim()).filter((c) => c.length > 0);
 	if (cells.length < 3) return null;
@@ -42,7 +83,7 @@ function parseFoodRow(row: string): { lunch: string; dinner: string } | null {
 	};
 }
 
-/** Extracts exercise items as a flat list (skipping heading lines like "Monday to Friday:"). */
+/** Extracts exercise items as a flat list. */
 function extractExerciseItems(exerciseText: string): string[] {
 	const lines = exerciseText.split('\n');
 	const items: string[] = [];
@@ -56,7 +97,7 @@ function extractExerciseItems(exerciseText: string): string[] {
 	return items;
 }
 
-/** Formats a task and its children as checkbox lines with proper indentation. */
+/** Formats a task and its children as checkbox lines. */
 function formatTaskLines(tasks: Task[], startIndent: number): string[] {
 	const lines: string[] = [];
 	for (const task of tasks) {
@@ -86,6 +127,24 @@ export async function generateDailyNoteContent(
 	// Header
 	lines.push('# TODOs');
 
+	// Reminders
+	const reminders = getReminders(data.reminderLines);
+	if (reminders.length > 0) {
+		lines.push('- [ ] Reminders');
+		for (const reminder of reminders) {
+			lines.push(`\t- [ ] ${reminder}`);
+		}
+	}
+
+	// Calendar events
+	const events = await fetchCalendarEvents(settings, date);
+	if (events.length > 0) {
+		lines.push('- [ ] Calendar');
+		for (const line of formatEvents(events)) {
+			lines.push(line);
+		}
+	}
+
 	// Exercise
 	const exerciseText = getExerciseForDay(data.exercisePlanText, fullDayName);
 	if (exerciseText) {
@@ -107,7 +166,7 @@ export async function generateDailyNoteContent(
 		}
 	}
 
-	// Tasks: combine scheduled (matching today), day, sampled week, sampled month, sampled year
+	// Tasks: scheduled (matching today), day, sampled week, sampled month, sampled year
 	const scheduledTasks = data.tasks.scheduled.filter(
 		(t) => !t.done && t.scheduledDate === dateTag,
 	);
@@ -119,39 +178,24 @@ export async function generateDailyNoteContent(
 	const allTasks = [...scheduledTasks, ...dayTasks, ...weekTasks, ...monthTasks, ...yearTasks];
 	if (allTasks.length > 0) {
 		lines.push('- [ ] Tasks');
-		// Scheduled tasks at indent 1
 		if (scheduledTasks.length > 0) {
-			for (const line of formatTaskLines(scheduledTasks, 1)) {
-				lines.push(line);
-			}
+			for (const line of formatTaskLines(scheduledTasks, 1)) lines.push(line);
 		}
-		// Day tasks at indent 1
 		if (dayTasks.length > 0) {
-			for (const line of formatTaskLines(dayTasks, 1)) {
-				lines.push(line);
-			}
+			for (const line of formatTaskLines(dayTasks, 1)) lines.push(line);
 		}
-		// Week tasks at indent 1
 		if (weekTasks.length > 0) {
-			for (const line of formatTaskLines(weekTasks, 1)) {
-				lines.push(line);
-			}
+			for (const line of formatTaskLines(weekTasks, 1)) lines.push(line);
 		}
-		// Month tasks at indent 1
 		if (monthTasks.length > 0) {
-			for (const line of formatTaskLines(monthTasks, 1)) {
-				lines.push(line);
-			}
+			for (const line of formatTaskLines(monthTasks, 1)) lines.push(line);
 		}
-		// Year tasks at indent 1
 		if (yearTasks.length > 0) {
-			for (const line of formatTaskLines(yearTasks, 1)) {
-				lines.push(line);
-			}
+			for (const line of formatTaskLines(yearTasks, 1)) lines.push(line);
 		}
 	}
 
-	// Weekly review task
+	// Weekly review
 	if (settings.weeklyReview && date.day() === settings.weeklyReviewDay) {
 		lines.push('- [ ] Review and update TODOs');
 	}
@@ -175,7 +219,6 @@ export async function createDailyNote(
 	const folder = normalizePath(resolveFolder(settings.dailyNotesFolder, date));
 	const filePath = normalizePath(`${folder}/${dateStr}.md`);
 
-	// Check if file already exists
 	const existing = app.vault.getAbstractFileByPath(filePath);
 	if (existing && existing instanceof TFile) {
 		new Notice('Great day: daily note already exists, opening it.');
@@ -183,13 +226,11 @@ export async function createDailyNote(
 		return existing;
 	}
 
-	// Ensure folder exists by creating a placeholder file
 	const folderExists = app.vault.getAbstractFileByPath(folder);
 	if (!folderExists) {
 		await app.vault.create(folder + '/.gitkeep', '');
 	}
 
-	// Generate content
 	const content = await generateDailyNoteContent(app, settings, date);
 	const file = await app.vault.create(filePath, content);
 	await app.workspace.openLinkText(filePath, '', false);
