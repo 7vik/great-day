@@ -2,7 +2,14 @@ import type { App } from 'obsidian';
 import { TFile, Notice, normalizePath, moment } from 'obsidian';
 import type { GreatDaySettings } from '../settings';
 import type { TaskScope, SyncResult } from '../types';
-import { parseTodos, extractNewTaskTag, stripTag, serialiseTodos } from './todosParser';
+import {
+	parseTodos,
+	extractNewTaskTag,
+	stripTag,
+	extractDateTag,
+	stripDateTag,
+	serialiseTodos,
+} from './todosParser';
 import { getDailyNoteFile } from './dailyNoteGenerator';
 
 /** Matches a checkbox task line. */
@@ -18,9 +25,7 @@ interface ParsedTask {
 
 /** Result of parsing a daily note. */
 interface DailyNoteTasks {
-	/** Tasks pulled from TODOs (under the Tasks wrapper). */
 	pulledTasks: ParsedTask[];
-	/** New tasks the user added (in the New tasks section). */
 	newTasks: ParsedTask[];
 }
 
@@ -63,18 +68,15 @@ function parseDailyNote(
 			if (inNewTasksSection) {
 				newTasks.push(taskObj);
 			} else if (inTasksSection) {
-				// Only collect nested tasks (indent > 0), skip the wrapper itself
 				if (indent > 0) {
 					pulledTasks.push(taskObj);
 				}
 			} else {
-				// Detect the "Tasks" wrapper checkbox
 				if (trimmedLower === '- [ ] tasks' || trimmedLower === '- [x] tasks') {
 					inTasksSection = true;
 				}
 			}
 		} else {
-			// Non-task line ends the tasks section context
 			if (inTasksSection && trimmedLower === '') {
 				inTasksSection = false;
 			}
@@ -89,6 +91,7 @@ function parseDailyNote(
  * - Checked pulled tasks → removed from TODOs
  * - Unchecked pulled tasks → stay in TODOs (rolled back)
  * - New tasks with (D)/(W)/(M)/(Y) tags → appended to the right TODOs section
+ * - New tasks with (DD-MM-YYYY) tags → appended to # Scheduled
  */
 export async function syncRollover(
 	app: App,
@@ -97,7 +100,7 @@ export async function syncRollover(
 ): Promise<SyncResult> {
 	const dailyFile = getDailyNoteFile(app, settings, yesterday);
 	if (!dailyFile) {
-		return { rolledBack: [], completed: [], appended: { day: [], week: [], month: [], year: [] } };
+		return { rolledBack: [], completed: [], appended: { day: [], week: [], month: [], year: [], scheduled: [] } };
 	}
 
 	const dailyContent = await app.vault.read(dailyFile);
@@ -108,7 +111,7 @@ export async function syncRollover(
 	);
 	if (!todosFile || !(todosFile instanceof TFile)) {
 		new Notice('Great day: todos file not found for rollover sync.');
-		return { rolledBack: [], completed: [], appended: { day: [], week: [], month: [], year: [] } };
+		return { rolledBack: [], completed: [], appended: { day: [], week: [], month: [], year: [], scheduled: [] } };
 	}
 
 	const todosRaw = await app.vault.read(todosFile);
@@ -117,7 +120,7 @@ export async function syncRollover(
 	const result: SyncResult = {
 		rolledBack: [],
 		completed: [],
-		appended: { day: [], week: [], month: [], year: [] },
+		appended: { day: [], week: [], month: [], year: [], scheduled: [] },
 	};
 
 	// Collect texts of completed tasks from the daily note
@@ -129,14 +132,13 @@ export async function syncRollover(
 	}
 
 	// Remove completed tasks from TODOs (also remove their sub-tasks)
-	for (const scope of ['day', 'week', 'month', 'year'] as TaskScope[]) {
+	for (const scope of ['day', 'week', 'month', 'year', 'scheduled'] as TaskScope[]) {
 		const indicesToRemove = new Set<number>();
 		for (let i = 0; i < data.tasks[scope].length; i++) {
 			const task = data.tasks[scope][i]!;
 			if (completedTexts.has(task.text)) {
 				indicesToRemove.add(i);
 				result.completed.push(task.text);
-				// Also remove sub-tasks (indented tasks that follow)
 				for (let j = i + 1; j < data.tasks[scope].length; j++) {
 					const subTask = data.tasks[scope][j]!;
 					if (subTask.indent > task.indent) {
@@ -147,7 +149,6 @@ export async function syncRollover(
 				}
 			}
 		}
-		// Filter out removed tasks
 		data.tasks[scope] = data.tasks[scope].filter(
 			(_, idx) => !indicesToRemove.has(idx),
 		);
@@ -156,17 +157,35 @@ export async function syncRollover(
 	// Process new tasks: append to appropriate section
 	for (const task of parsed.newTasks) {
 		if (task.done) continue;
-		if (!task.text.trim()) continue; // skip empty placeholder
+		if (!task.text.trim()) continue;
+
+		// Check for date tag first (DD-MM-YYYY)
+		const dateTag = extractDateTag(task.text);
+		if (dateTag) {
+			const cleanText = stripDateTag(task.text);
+			data.tasks.scheduled.push({
+				raw: `- [ ] ${cleanText} (${dateTag})`,
+				text: cleanText,
+				done: false,
+				scope: 'scheduled',
+				indent: 0,
+				scheduledDate: dateTag,
+			});
+			result.appended.scheduled.push(cleanText);
+			continue;
+		}
+
+		// Check for scope tag (D/W/M/Y)
 		const tagResult = extractNewTaskTag(task.text);
 		if (tagResult) {
 			const cleanText = stripTag(task.text);
-			const newRaw = `- [ ] ${cleanText}`;
 			data.tasks[tagResult.scope].push({
-				raw: newRaw,
+				raw: `- [ ] ${cleanText}`,
 				text: cleanText,
 				done: false,
 				scope: tagResult.scope,
 				indent: 0,
+				scheduledDate: null,
 			});
 			result.appended[tagResult.scope].push(cleanText);
 		}

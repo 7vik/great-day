@@ -1,46 +1,51 @@
 # Great Day
 
-An Obsidian plugin that syncs your daily notes with your TODOs file. When you create a new daily note, it pulls in today's exercise plan, food plan, and a smart sample of week/month/year tasks. At midnight, it syncs back — checking off completed tasks in your TODOs and appending any new tasks you added during the day.
+An Obsidian plugin that syncs your daily notes with your TODOs file. When you create a new daily note, it pulls in today's exercise plan, food plan, and a smart sample of week/month/year tasks. At midnight (or on demand), it syncs back — removing completed tasks from your TODOs and appending any new tasks you added during the day.
 
 ## How it works
 
 ### Daily note creation
 
-Run the **Create today's daily note** command (or **Create daily note for…** to pick a date). The plugin reads your `TODOs.md` and generates a daily note with:
+Run the **Create today's daily note** command (or **Create daily note for…** to pick a date). The plugin reads your `TODOs.md` and generates a daily note with a checkbox tree:
 
-1. **Exercise** — the exercise routine for today's day of the week
-2. **Food** — the food plan row for today's day of the week
-3. **Today** — any day-scope tasks from your TODOs
-4. **This week** — a sampled subset of your week tasks (proportional to days left)
-5. **This month** — a sampled subset of your month tasks
-6. **This year** — a sampled subset of your year tasks
-7. **Weekly review** — if today is your configured review day (default: Monday)
-8. **New tasks** — a section where you add new tasks with scope tags
+1. **Exercise** — today's exercise routine as nested checkboxes
+2. **Food** — today's lunch and dinner parsed from the food plan table
+3. **Tasks** — a combination of:
+   - Scheduled tasks matching today's date
+   - All day-scope tasks
+   - A sampled, shuffled subset of week/month/year tasks
+4. **Weekly review** — if today is your configured review day (default: Monday)
+5. **New tasks** — a section where you add new tasks with scope or date tags
 
 ### Task sampling
 
-For week/month/year tasks, the plugin shows `ceil(total_tasks / days_remaining)` tasks — so if there are 10 week tasks and 3 days left (including today), you'll see ~4 tasks. This ensures you work through tasks at a steady pace without being overwhelmed.
+For week/month/year tasks, the plugin shows `ceil(total_tasks / days_remaining)` tasks — randomly selected and shuffled. If there are 10 week tasks and 3 days left (including today), you'll see ~4 tasks. Nested sub-tasks stay with their parent.
 
 ### New tasks
 
-In the **New tasks** section of your daily note, add tasks with a scope tag at the end:
+In the **New tasks** section of your daily note, add tasks with a tag at the end:
 
+**Scope tags:**
 - `- [ ] Buy groceries (D)` → goes to the **Day** section of TODOs
 - `- [ ] Write blog post (W)` → goes to the **Week** section
 - `- [ ] Read paper (M)` → goes to the **Month** section
 - `- [ ] Plan trip (Y)` → goes to the **Year** section
 
-### Midnight rollover
+**Date tags:**
+- `- [ ] Dentist appointment (15-07-2026)` → goes to the **Scheduled** section, shows up on 15 July 2026
 
-At midnight (or when Obsidian starts the next day), the plugin syncs yesterday's daily note:
+If you tick off a new task on the same day, it won't be added to TODOs at all.
 
-- **Checked tasks** → marked as done in TODOs
+### Rollover
+
+At midnight (or when you run **End day**), the plugin syncs the daily note:
+
+- **Checked tasks** → removed from TODOs (including sub-tasks)
 - **Unchecked tasks** → stay in TODOs (automatically rolled back)
 - **New tagged tasks** → appended to the appropriate TODOs section
+- **New date-tagged tasks** → appended to **# Scheduled** in TODOs
 
 ## TODOs.md format
-
-Your TODOs file should have these sections:
 
 ```markdown
 # Food Plan
@@ -55,6 +60,9 @@ Saturday:
 Sunday:
 - ...
 
+# Day
+- [ ] task...
+
 # Week
 - [ ] task...
 
@@ -63,14 +71,16 @@ Sunday:
 
 # Year
 - [ ] task...
+
+# Scheduled
+- [ ] task (DD-MM-YYYY)
 ```
 
 ## Settings
 
 - **Todos file path** — path to your TODOs file (default: `TODOs.md`)
-- **Daily notes folder** — where daily notes are stored (default: `Daily Notes`)
+- **Daily notes folder** — where daily notes are stored (default: `Daily Notes/{{year}}`)
 - **Date format** — moment.js format for filenames (default: `YYYY-MM-DD`)
-- **Week/Month/Year tasks to show** — override the auto-sampling count
 - **Auto rollover at midnight** — enable/disable automatic syncing
 - **Weekly todos review** — add a review task on a specific day each week
 - **New tasks heading** — heading text for the new-tasks section
@@ -79,4 +89,5 @@ Sunday:
 
 - **Create today's daily note** — generates and opens today's note
 - **Create daily note for…** — pick a date and generate that note
-- **Sync yesterday's tasks back to todos** — manually trigger the rollover sync
+- **End day** — manually trigger the rollover sync for today
+- **Sync yesterday's tasks back to todos** — manually trigger rollover for yesterday

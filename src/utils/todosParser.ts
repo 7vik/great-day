@@ -6,6 +6,9 @@ const TASK_RE = /^(\s*)- \[([ xX])\] (.*)$/;
 /** Matches scope tags in new tasks: (D), (W), (M), (Y). */
 const TAG_RE = /\(([DWdwmM])\)\s*$/;
 
+/** Matches date tags in new tasks: (DD-MM-YYYY). */
+const DATE_TAG_RE = /\((\d{2}-\d{2}-\d{4})\)\s*$/;
+
 /** Maps a tag character to a scope. */
 function tagToScope(ch: string): TaskScope | null {
 	switch (ch.toUpperCase()) {
@@ -18,7 +21,7 @@ function tagToScope(ch: string): TaskScope | null {
 }
 
 /** Tracks which section we're currently parsing. */
-type Section = 'food' | 'exercise' | 'day' | 'week' | 'month' | 'year' | null;
+type Section = 'food' | 'exercise' | 'day' | 'week' | 'month' | 'year' | 'scheduled' | null;
 
 /** Checks if a line is a heading we recognise for task sections. */
 function matchTaskSection(trimmedLower: string): Section {
@@ -26,7 +29,19 @@ function matchTaskSection(trimmedLower: string): Section {
 	if (trimmedLower === '# week' || trimmedLower === '## week') return 'week';
 	if (trimmedLower === '# month' || trimmedLower === '## month') return 'month';
 	if (trimmedLower === '# year' || trimmedLower === '## year') return 'year';
+	if (trimmedLower === '# scheduled' || trimmedLower === '## scheduled') return 'scheduled';
 	return null;
+}
+
+/** Extracts a date tag (DD-MM-YYYY) from task text, if present. */
+export function extractDateTag(text: string): string | null {
+	const match = text.match(DATE_TAG_RE);
+	return match?.[1] ?? null;
+}
+
+/** Removes the date tag from task text. */
+export function stripDateTag(text: string): string {
+	return text.replace(DATE_TAG_RE, '').trimEnd();
 }
 
 /** Parses the full TODOs.md text into structured data. */
@@ -35,7 +50,7 @@ export function parseTodos(raw: string): TodosData {
 	const foodPlanLines: string[] = [];
 	const exercisePlanLines: string[] = [];
 	const tasks: Record<TaskScope, Task[]> = {
-		day: [], week: [], month: [], year: [],
+		day: [], week: [], month: [], year: [], scheduled: [],
 	};
 
 	let currentSection: Section = null;
@@ -43,26 +58,22 @@ export function parseTodos(raw: string): TodosData {
 	for (const line of lines) {
 		const trimmedLower = line.trim().toLowerCase();
 
-		// Detect food plan heading — don't push the heading itself
 		if (trimmedLower.startsWith('# food plan')) {
 			currentSection = 'food';
 			continue;
 		}
 
-		// Detect exercise plan heading — don't push the heading itself
 		if (trimmedLower.startsWith('# exercise plan')) {
 			currentSection = 'exercise';
 			continue;
 		}
 
-		// Check task section headings
 		const taskSection = matchTaskSection(trimmedLower);
 		if (taskSection) {
 			currentSection = taskSection;
 			continue;
 		}
 
-		// Collect food plan (until next heading)
 		if (currentSection === 'food') {
 			if (trimmedLower.startsWith('#')) {
 				currentSection = null;
@@ -72,7 +83,6 @@ export function parseTodos(raw: string): TodosData {
 			}
 		}
 
-		// Collect exercise plan
 		if (currentSection === 'exercise') {
 			if (trimmedLower.startsWith('#')) {
 				currentSection = null;
@@ -82,18 +92,19 @@ export function parseTodos(raw: string): TodosData {
 			}
 		}
 
-		// Parse task lines in task sections
 		const taskMatch = line.match(TASK_RE);
-		if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year')) {
+		if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year' || currentSection === 'scheduled')) {
 			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
 			const text = taskMatch[3] ?? '';
+			const scheduledDate = currentSection === 'scheduled' ? extractDateTag(text) : null;
 			tasks[currentSection].push({
 				raw: line,
 				text,
 				done: doneChar.toLowerCase() === 'x',
 				scope: currentSection,
 				indent: indentStr.length,
+				scheduledDate,
 			});
 		}
 	}
@@ -182,20 +193,22 @@ export function stripTag(text: string): string {
 function buildTaskLine(task: Task): string {
 	const indent = '\t'.repeat(task.indent);
 	const checkbox = task.done ? '- [x]' : '- [ ]';
-	return `${indent}${checkbox} ${task.text}`;
+	let suffix = '';
+	if (task.scope === 'scheduled' && task.scheduledDate) {
+		suffix = ` (${task.scheduledDate})`;
+	}
+	return `${indent}${checkbox} ${task.text}${suffix}`;
 }
 
 /** Serialises TodosData back into file text. */
 export function serialiseTodos(data: TodosData): string {
 	const sections: string[] = [];
 
-	// Food plan
 	if (data.foodPlanLines.length > 0) {
 		sections.push('# Food Plan');
 		sections.push(data.foodPlanLines.join('\n').trim());
 	}
 
-	// Exercise plan
 	if (data.exercisePlanText) {
 		sections.push('# Exercise Plan');
 		sections.push(data.exercisePlanText);
@@ -206,9 +219,10 @@ export function serialiseTodos(data: TodosData): string {
 		week: '# Week',
 		month: '# Month',
 		year: '# Year',
+		scheduled: '# Scheduled',
 	};
 
-	for (const scope of ['day', 'week', 'month', 'year'] as TaskScope[]) {
+	for (const scope of ['day', 'week', 'month', 'year', 'scheduled'] as TaskScope[]) {
 		const scopeTasks = data.tasks[scope];
 		if (scopeTasks.length > 0) {
 			const taskLines = scopeTasks.map((t) => buildTaskLine(t));

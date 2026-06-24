@@ -10,7 +10,8 @@ function showRolloverNotice(result: SyncResult): void {
 		result.appended.day.length +
 		result.appended.week.length +
 		result.appended.month.length +
-		result.appended.year.length;
+		result.appended.year.length +
+		result.appended.scheduled.length;
 	new Notice(
 		`Great day: synced — ${result.completed.length} completed, ${result.rolledBack.length} rolled back, ${totalAppended} new task(s) added to todos.`,
 	);

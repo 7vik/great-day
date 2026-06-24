@@ -36,7 +36,6 @@ async function readTodosFile(
 function parseFoodRow(row: string): { lunch: string; dinner: string } | null {
 	const cells = row.split('|').map((c) => c.trim()).filter((c) => c.length > 0);
 	if (cells.length < 3) return null;
-	// First cell is the day, second is lunch, third is dinner
 	return {
 		lunch: cells[1] ?? '',
 		dinner: cells[2] ?? '',
@@ -50,9 +49,7 @@ function extractExerciseItems(exerciseText: string): string[] {
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
-		// Skip lines that look like section headers (end with colon, no dash)
 		if (trimmed.endsWith(':') && !trimmed.startsWith('-')) continue;
-		// Strip leading "- " if present
 		const text = trimmed.replace(/^-\s*/, '');
 		if (text) items.push(text);
 	}
@@ -82,6 +79,7 @@ export async function generateDailyNoteContent(
 	const data = parseTodos(raw);
 	const dayName = dayShort(date);
 	const fullDayName = dayLong(date);
+	const dateTag = date.format('DD-MM-YYYY');
 
 	const lines: string[] = [];
 
@@ -109,15 +107,24 @@ export async function generateDailyNoteContent(
 		}
 	}
 
-	// Tasks: combine day, sampled week, sampled month, sampled year
+	// Tasks: combine scheduled (matching today), day, sampled week, sampled month, sampled year
+	const scheduledTasks = data.tasks.scheduled.filter(
+		(t) => !t.done && t.scheduledDate === dateTag,
+	);
 	const dayTasks = data.tasks.day.filter((t) => !t.done);
 	const weekTasks = sampleForScope(data.tasks.week, 'week', date);
 	const monthTasks = sampleForScope(data.tasks.month, 'month', date);
 	const yearTasks = sampleForScope(data.tasks.year, 'year', date);
 
-	const allTasks = [...dayTasks, ...weekTasks, ...monthTasks, ...yearTasks];
+	const allTasks = [...scheduledTasks, ...dayTasks, ...weekTasks, ...monthTasks, ...yearTasks];
 	if (allTasks.length > 0) {
 		lines.push('- [ ] Tasks');
+		// Scheduled tasks at indent 1
+		if (scheduledTasks.length > 0) {
+			for (const line of formatTaskLines(scheduledTasks, 1)) {
+				lines.push(line);
+			}
+		}
 		// Day tasks at indent 1
 		if (dayTasks.length > 0) {
 			for (const line of formatTaskLines(dayTasks, 1)) {

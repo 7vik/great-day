@@ -1,5 +1,5 @@
 /** Identifies which TODOs section a task belongs to. */
-export type TaskScope = 'day' | 'week' | 'month' | 'year';
+export type TaskScope = 'day' | 'week' | 'month' | 'year' | 'scheduled';
 
 /** A single task line from TODOs.md. */
 export interface Task {
@@ -13,6 +13,8 @@ export interface Task {
 	scope: TaskScope;
 	/** Indentation level (0 = top-level, 1 = one tab in). */
 	indent: number;
+	/** For scheduled tasks: the target date as DD-MM-YYYY (null for other scopes). */
+	scheduledDate: string | null;
 }
 
 /** Parsed contents of TODOs.md. */
