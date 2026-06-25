@@ -111,8 +111,9 @@ export function parseTodos(raw: string): TodosData {
 		if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year' || currentSection === 'scheduled')) {
 			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
-			const text = taskMatch[3] ?? '';
-			const scheduledDate = currentSection === 'scheduled' ? extractDateTag(text) : null;
+			const rawText = taskMatch[3] ?? '';
+			const scheduledDate = currentSection === 'scheduled' ? extractDateTag(rawText) : null;
+			const text = scheduledDate ? stripDateTag(rawText) : rawText;
 			tasks[currentSection].push({
 				raw: line,
 				text,
@@ -124,7 +125,15 @@ export function parseTodos(raw: string): TodosData {
 		}
 	}
 
-	const exercisePlanText = exercisePlanLines.join('\n').trimEnd();
+	const exercisePlanText = exercisePlanLines
+		.filter((line, idx, arr) => {
+			// Collapse consecutive blank lines
+			const trimmed = line.trim();
+			if (trimmed === '' && idx > 0 && arr[idx - 1]?.trim() === '') return false;
+			return true;
+		})
+		.join('\n')
+		.trim();
 
 	return {
 		raw,
