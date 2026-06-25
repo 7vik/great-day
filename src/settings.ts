@@ -5,10 +5,6 @@ export interface GreatDaySettings {
 	todosFilePath: string;
 	dailyNotesFolder: string;
 	dateFormat: string;
-	weekTaskCount: number;
-	monthTaskCount: number;
-	yearTaskCount: number;
-	autoRollover: boolean;
 	weeklyReview: boolean;
 	weeklyReviewDay: number;
 	addTasksHeading: string;
@@ -19,10 +15,6 @@ export const DEFAULT_SETTINGS: GreatDaySettings = {
 	todosFilePath: 'TODOs.md',
 	dailyNotesFolder: 'Daily Notes/{{year}}',
 	dateFormat: 'YYYY-MM-DD',
-	weekTaskCount: 4,
-	monthTaskCount: 3,
-	yearTaskCount: 2,
-	autoRollover: true,
 	weeklyReview: true,
 	weeklyReviewDay: 1,
 	addTasksHeading: 'New tasks',
@@ -76,57 +68,6 @@ export class GreatDaySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.dateFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.dateFormat = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Week tasks to show')
-			.setDesc('How many week-scope tasks to sample into each daily note.')
-			.addText((text) =>
-				text
-					.setPlaceholder('4')
-					.setValue(String(this.plugin.settings.weekTaskCount))
-					.onChange(async (value) => {
-						this.plugin.settings.weekTaskCount = parseInt(value) || 0;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Month tasks to show')
-			.setDesc('How many month-scope tasks to sample into each daily note.')
-			.addText((text) =>
-				text
-					.setPlaceholder('3')
-					.setValue(String(this.plugin.settings.monthTaskCount))
-					.onChange(async (value) => {
-						this.plugin.settings.monthTaskCount = parseInt(value) || 0;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Year tasks to show')
-			.setDesc('How many year-scope tasks to sample into each daily note.')
-			.addText((text) =>
-				text
-					.setPlaceholder('2')
-					.setValue(String(this.plugin.settings.yearTaskCount))
-					.onChange(async (value) => {
-						this.plugin.settings.yearTaskCount = parseInt(value) || 0;
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		new Setting(containerEl)
-			.setName('Auto rollover at midnight')
-			.setDesc('Automatically sync uncompleted tasks back to todos at midnight.')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.autoRollover)
-					.onChange(async (value) => {
-						this.plugin.settings.autoRollover = value;
 						await this.plugin.saveSettings();
 					}),
 			);

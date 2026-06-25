@@ -10,6 +10,7 @@ import {
 } from './todosParser';
 import { sampleForScope } from './taskSampler';
 import { parseIcsForDate, type CalendarEvent } from './icsParser';
+import { syncPreviousNotes } from './rollover';
 import { dayShort, dayLong, formatDate } from './dateUtils';
 
 /** Resolves {{year}} in a folder path to the current year. */
@@ -57,9 +58,7 @@ function formatEvents(events: CalendarEvent[]): string[] {
 	const lines: string[] = [];
 	for (const event of events) {
 		let label = event.summary;
-		if (event.allDay) {
-			// All-day event — no time shown
-		} else {
+		if (!event.allDay) {
 			const startStr = event.start.format('HH:mm');
 			const endStr = event.end.format('HH:mm');
 			if (startStr === endStr) {
@@ -219,6 +218,7 @@ export async function createDailyNote(
 	const folder = normalizePath(resolveFolder(settings.dailyNotesFolder, date));
 	const filePath = normalizePath(`${folder}/${dateStr}.md`);
 
+	// Check if file already exists
 	const existing = app.vault.getAbstractFileByPath(filePath);
 	if (existing && existing instanceof TFile) {
 		new Notice('Great day: daily note already exists, opening it.');
@@ -226,11 +226,29 @@ export async function createDailyNote(
 		return existing;
 	}
 
+	// Sync previous unsynced notes before creating a new one
+	const syncResult = await syncPreviousNotes(app, settings, date);
+	const totalSynced =
+		syncResult.completed.length +
+		syncResult.rolledBack.length +
+		syncResult.appended.day.length +
+		syncResult.appended.week.length +
+		syncResult.appended.month.length +
+		syncResult.appended.year.length +
+		syncResult.appended.scheduled.length;
+	if (totalSynced > 0) {
+		new Notice(
+			`Great day: synced previous note(s) — ${syncResult.completed.length} completed, ${syncResult.rolledBack.length} rolled back, ${syncResult.appended.day.length + syncResult.appended.week.length + syncResult.appended.month.length + syncResult.appended.year.length + syncResult.appended.scheduled.length} new task(s) added.`,
+		);
+	}
+
+	// Ensure folder exists
 	const folderExists = app.vault.getAbstractFileByPath(folder);
 	if (!folderExists) {
 		await app.vault.create(folder + '/.gitkeep', '');
 	}
 
+	// Generate content (re-reads TODOs after sync)
 	const content = await generateDailyNoteContent(app, settings, date);
 	const file = await app.vault.create(filePath, content);
 	await app.workspace.openLinkText(filePath, '', false);
