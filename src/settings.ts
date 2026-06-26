@@ -8,6 +8,7 @@ export interface GreatDaySettings {
 	weeklyReview: boolean;
 	weeklyReviewDay: number;
 	addTasksHeading: string;
+	chillWeekends: boolean;
 	icsCalendarUrl: string;
 }
 
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: GreatDaySettings = {
 	weeklyReview: true,
 	weeklyReviewDay: 1,
 	addTasksHeading: 'New tasks',
+	chillWeekends: true,
 	icsCalendarUrl: '',
 };
 
@@ -106,6 +108,18 @@ export class GreatDaySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.addTasksHeading)
 					.onChange(async (value) => {
 						this.plugin.settings.addTasksHeading = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Chill weekends')
+			.setDesc('On weekends, only show scheduled tasks and new tasks section (no exercise, food, reminders, or sampled tasks).')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.chillWeekends)
+					.onChange(async (value) => {
+						this.plugin.settings.chillWeekends = value;
 						await this.plugin.saveSettings();
 					}),
 			);

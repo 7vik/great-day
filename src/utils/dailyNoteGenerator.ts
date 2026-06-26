@@ -18,6 +18,12 @@ export function resolveFolder(path: string, date: moment.Moment): string {
 	return path.replace('{{year}}', String(date.year()));
 }
 
+/** Checks if a date is a weekend (Saturday or Sunday). */
+function isWeekend(date: moment.Moment): boolean {
+	const day = date.day(); // 0=Sun, 6=Sat
+	return day === 0 || day === 6;
+}
+
 /** Reads the TODOs file from the vault. */
 async function readTodosFile(
 	app: App,
@@ -122,11 +128,13 @@ export async function generateDailyNoteContent(
 	const dateTag = date.format('DD-MM-YYYY');
 
 	const lines: string[] = [];
+	const chillWeekend = settings.chillWeekends && isWeekend(date);
 
 	// Header
 	lines.push('# TODOs');
 
-	// Reminders
+	// Reminders (skip on chill weekends)
+	if (!chillWeekend) {
 	const reminders = getReminders(data.reminderLines);
 	if (reminders.length > 0) {
 		lines.push('- [ ] Reminders');
@@ -134,6 +142,8 @@ export async function generateDailyNoteContent(
 			lines.push(`\t- [ ] ${reminder}`);
 		}
 	}
+
+	} // end reminders
 
 	// Calendar events
 	const events = await fetchCalendarEvents(settings, date);
@@ -144,7 +154,8 @@ export async function generateDailyNoteContent(
 		}
 	}
 
-	// Exercise
+	// Exercise (skip on chill weekends)
+	if (!chillWeekend) {
 	const exerciseText = getExerciseForDay(data.exercisePlanText, fullDayName);
 	if (exerciseText) {
 		const exerciseItems = extractExerciseItems(exerciseText);
@@ -154,7 +165,10 @@ export async function generateDailyNoteContent(
 		}
 	}
 
-	// Food
+	} // end exercise
+
+	// Food (skip on chill weekends)
+	if (!chillWeekend) {
 	const foodRow = getFoodForDay(data.foodPlanLines, dayName);
 	if (foodRow) {
 		const parsed = parseFoodRow(foodRow);
@@ -165,14 +179,16 @@ export async function generateDailyNoteContent(
 		}
 	}
 
+	} // end food
+
 	// Tasks: scheduled (matching today), day, sampled week, sampled month, sampled year
 	const scheduledTasks = data.tasks.scheduled.filter(
 		(t) => !t.done && t.scheduledDate === dateTag,
 	);
-	const dayTasks = data.tasks.day.filter((t) => !t.done);
-	const weekTasks = sampleForScope(data.tasks.week, 'week', date);
-	const monthTasks = sampleForScope(data.tasks.month, 'month', date);
-	const yearTasks = sampleForScope(data.tasks.year, 'year', date);
+	const dayTasks = chillWeekend ? [] : data.tasks.day.filter((t) => !t.done);
+	const weekTasks = chillWeekend ? [] : sampleForScope(data.tasks.week, 'week', date);
+	const monthTasks = chillWeekend ? [] : sampleForScope(data.tasks.month, 'month', date);
+	const yearTasks = chillWeekend ? [] : sampleForScope(data.tasks.year, 'year', date);
 
 	const allTasks = [...scheduledTasks, ...dayTasks, ...weekTasks, ...monthTasks, ...yearTasks];
 	if (allTasks.length > 0) {
@@ -194,8 +210,8 @@ export async function generateDailyNoteContent(
 		}
 	}
 
-	// Weekly review
-	if (settings.weeklyReview && date.day() === settings.weeklyReviewDay) {
+	// Weekly review (skip on chill weekends)
+	if (!chillWeekend && settings.weeklyReview && date.day() === settings.weeklyReviewDay) {
 		lines.push('- [ ] Review and update TODOs');
 	}
 
