@@ -1,4 +1,4 @@
-import type { Task, TaskScope, TodosData } from '../types';
+import type { CompletedTask, Task, TaskScope, TodosData } from '../types';
 
 /** Matches a checkbox task line: `- [ ]` or `- [x]` (case-insensitive). */
 const TASK_RE = /^(\s*)- \[([ xX])\] (.*)$/;
@@ -8,6 +8,9 @@ const TAG_RE = /\(([DWMYdwmy])\)\s*$/;
 
 /** Matches date tags in task text: (DD-MM-YYYY). */
 const DATE_TAG_RE = /\((\d{2}-\d{2}-\d{4})\)\s*$/;
+
+/** Matches completion metadata in archived tasks. */
+const COMPLETED_DATE_RE = /\(completed (\d{2}-\d{2}-\d{4})\)\s*$/i;
 
 /**
  * Matches the hidden "shown count" marker appended to week/month/year tasks,
@@ -28,7 +31,7 @@ function tagToScope(ch: string): TaskScope | null {
 }
 
 /** Tracks which section we're currently parsing. */
-type Section = 'reminders' | 'exercise' | 'day' | 'week' | 'month' | 'year' | 'scheduled' | null;
+type Section = 'reminders' | 'exercise' | 'day' | 'week' | 'month' | 'year' | 'scheduled' | 'completed' | null;
 
 /** Checks if a line is a heading we recognise for task sections. */
 function matchTaskSection(trimmedLower: string): Section {
@@ -37,7 +40,16 @@ function matchTaskSection(trimmedLower: string): Section {
 	if (trimmedLower === '# month' || trimmedLower === '## month') return 'month';
 	if (trimmedLower === '# year' || trimmedLower === '## year') return 'year';
 	if (trimmedLower === '# scheduled' || trimmedLower === '## scheduled') return 'scheduled';
+	if (trimmedLower === '# completed' || trimmedLower === '## completed') return 'completed';
 	return null;
+}
+
+function extractCompletedDate(text: string): string | null {
+	return text.match(COMPLETED_DATE_RE)?.[1] ?? null;
+}
+
+function stripCompletedDate(text: string): string {
+	return text.replace(COMPLETED_DATE_RE, '').trimEnd();
 }
 
 /** Extracts a date tag (DD-MM-YYYY) from task text, if present. */
@@ -83,8 +95,10 @@ export function parseTodos(raw: string): TodosData {
 	const tasks: Record<TaskScope, Task[]> = {
 		day: [], week: [], month: [], year: [], scheduled: [],
 	};
+	const completedTasks: CompletedTask[] = [];
 
 	let currentSection: Section = null;
+	let completedParent: Pick<CompletedTask, 'scope' | 'scheduledDate' | 'completedDate'> | null = null;
 
 	for (const line of lines) {
 		const trimmedLower = line.trim().toLowerCase();
@@ -136,7 +150,28 @@ export function parseTodos(raw: string): TodosData {
 
 		// Parse task lines in task sections
 		const taskMatch = line.match(TASK_RE);
-		if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year' || currentSection === 'scheduled')) {
+		if (taskMatch && currentSection === 'completed') {
+			const indentStr = taskMatch[1] ?? '';
+			const rawText = taskMatch[3] ?? '';
+			const completedDate = extractCompletedDate(rawText) ?? completedParent?.completedDate;
+			let cleanText = stripCompletedDate(rawText);
+			const scheduledDate = extractDateTag(cleanText) ?? completedParent?.scheduledDate ?? null;
+			const scopeTag = extractNewTaskTag(cleanText);
+			const scope = scheduledDate ? 'scheduled' : scopeTag?.scope ?? completedParent?.scope ?? 'day';
+			cleanText = scheduledDate ? stripDateTag(cleanText) : stripScopeTag(cleanText);
+			const completedTask: CompletedTask = {
+				raw: line,
+				text: cleanText,
+				done: true,
+				scope,
+				indent: indentStr.length,
+				scheduledDate,
+				shownCount: 0,
+				completedDate: completedDate ?? '',
+			};
+			completedTasks.push(completedTask);
+			if (completedTask.indent === 0) completedParent = completedTask;
+		} else if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year' || currentSection === 'scheduled')) {
 			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
 			const rawText = taskMatch[3] ?? '';
@@ -172,6 +207,7 @@ export function parseTodos(raw: string): TodosData {
 		exercisePlanText,
 		reminderLines,
 		tasks,
+		completedTasks,
 	};
 }
 
@@ -282,6 +318,20 @@ function buildTaskLine(task: Task): string {
 	return `${indent}${checkbox} ${sanitiseTaskText(task.text)}${suffix}${shownMarker}`;
 }
 
+function buildCompletedTaskLine(task: CompletedTask): string {
+	const indent = '\t'.repeat(task.indent);
+	let origin = '';
+	if (task.indent === 0) {
+		origin = task.scheduledDate
+			? ` (${task.scheduledDate})`
+			: ` (${task.scope.charAt(0).toUpperCase()})`;
+	}
+	const completed = task.indent === 0 && task.completedDate
+		? ` (completed ${task.completedDate})`
+		: '';
+	return `${indent}- [x] ${sanitiseTaskText(task.text)}${origin}${completed}`;
+}
+
 /**
  * Flattens anything in a task's text that would break the one-task-per-line
  * invariant. Embedded newlines (or a checkbox marker smuggled into the middle of
@@ -331,6 +381,13 @@ export function serialiseTodos(data: TodosData): string {
 				: scopeHeading[scope],
 		);
 	}
+
+	const completedLines = data.completedTasks.map((task) => buildCompletedTaskLine(task));
+	sections.push(
+		completedLines.length > 0
+			? '# Completed\n' + completedLines.join('\n')
+			: '# Completed',
+	);
 
 	return sections.join('\n\n') + '\n';
 }

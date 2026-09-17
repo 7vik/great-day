@@ -1,7 +1,18 @@
 import type GreatDayPlugin from '../main';
 import { Notice, moment } from 'obsidian';
 import { createDailyNote } from '../utils/dailyNoteGenerator';
-import { syncRollover } from '../utils/rollover';
+
+function showSyncResult(result: Awaited<ReturnType<GreatDayPlugin['endDay']>>): void {
+	const totalAppended = Object.values(result.appended)
+		.reduce((total, tasks) => total + tasks.length, 0);
+	if (result.completed.length === 0 && result.rolledBack.length === 0 && totalAppended === 0) {
+		new Notice('Great day: nothing to sync.');
+		return;
+	}
+	new Notice(
+		`Great day: synced — ${result.completed.length} completed, ${result.rolledBack.length} rolled back, ${totalAppended} new.`,
+	);
+}
 
 /** Registers all plugin commands. */
 export function registerCommands(plugin: GreatDayPlugin): void {
@@ -9,7 +20,7 @@ export function registerCommands(plugin: GreatDayPlugin): void {
 		id: 'create-today-daily-note',
 		name: 'Create today\'s daily note',
 		callback: async () => {
-			await createDailyNote(plugin.app, plugin.settings, moment());
+			await createDailyNote(plugin, moment());
 		},
 	});
 
@@ -25,7 +36,7 @@ export function registerCommands(plugin: GreatDayPlugin): void {
 			if (dateStr) {
 				const date = moment(dateStr, plugin.settings.dateFormat);
 				if (date.isValid()) {
-					await createDailyNote(plugin.app, plugin.settings, date);
+					await createDailyNote(plugin, date);
 				} else {
 					new Notice('Great day: invalid date format.');
 				}
@@ -34,25 +45,19 @@ export function registerCommands(plugin: GreatDayPlugin): void {
 	});
 
 	plugin.addCommand({
+		id: 'end-day',
+		name: 'End day',
+		callback: async () => {
+			showSyncResult(await plugin.endDay(moment()));
+		},
+	});
+
+	plugin.addCommand({
 		id: 'sync-previous-day',
-		name: 'Manually sync previous day',
+		name: 'Sync yesterday\'s tasks back to todos',
 		callback: async () => {
 			const yesterday = moment().subtract(1, 'day');
-			// Scheduled tasks are judged due against today, not the synced note's date.
-			const result = await syncRollover(plugin.app, plugin.settings, yesterday, moment());
-			const totalAppended =
-				result.appended.day.length +
-				result.appended.week.length +
-				result.appended.month.length +
-				result.appended.year.length +
-				result.appended.scheduled.length;
-			if (result.completed.length === 0 && result.rolledBack.length === 0 && totalAppended === 0) {
-				new Notice('Great day: nothing to sync (note may not exist or already synced).');
-			} else {
-				new Notice(
-					`Great day: synced — ${result.completed.length} completed, ${result.rolledBack.length} rolled back, ${totalAppended} new.`,
-				);
-			}
+			showSyncResult(await plugin.endDay(yesterday));
 		},
 	});
 }

@@ -1,7 +1,7 @@
 import type { App } from 'obsidian';
 import { TFile, Notice, normalizePath, moment } from 'obsidian';
 import type { GreatDaySettings } from '../settings';
-import type { TaskScope, SyncResult, Task } from '../types';
+import type { TaskScope, SyncBatchResult, SyncResult, Task } from '../types';
 import {
 	parseTodos,
 	extractNewTaskTag,
@@ -11,13 +11,42 @@ import {
 	serialiseTodos,
 	parseTaggedTask,
 } from './todosParser';
-import { getDailyNoteFile } from './dailyNoteGenerator';
+import { getDailyNoteFile, resolveFolder } from './dailyNoteGenerator';
+import { formatDate } from './dateUtils';
+import { removeCompletedTasks, selectPendingDateStrings } from './syncState';
 
 /** Marker written at the end of a daily note after rollover to prevent double-sync. */
 const SYNCED_MARKER = '<!-- great-day-synced -->';
 
 /** Matches a checkbox task line. */
 const TASK_RE = /^(\s*)- \[([ xX])\] (.*)$/;
+
+export function selectPendingNoteDates(
+	filePaths: string[],
+	settings: GreatDaySettings,
+	targetDate: moment.Moment,
+	lastSuccessfulSyncDate: string | null,
+): moment.Moment[] {
+	const dates = new Map<string, moment.Moment>();
+
+	for (const filePath of filePaths) {
+		const fileName = filePath.split('/').at(-1);
+		if (!fileName?.endsWith('.md')) continue;
+		const date = moment(fileName.slice(0, -3), settings.dateFormat, true);
+		if (!date.isValid()) continue;
+
+		const expectedPath = normalizePath(
+			`${resolveFolder(settings.dailyNotesFolder, date)}/${formatDate(date, settings.dateFormat)}.md`,
+		);
+		if (filePath === expectedPath) dates.set(date.format('YYYY-MM-DD'), date);
+	}
+
+	return selectPendingDateStrings(
+		[...dates.keys()],
+		targetDate.format('YYYY-MM-DD'),
+		lastSuccessfulSyncDate,
+	).map((date) => dates.get(date)!);
+}
 
 /** A parsed task from the daily note (under Tasks section). */
 interface ParsedTask {
@@ -70,6 +99,8 @@ function parseDailyNote(
 
 	let inNewTasksSection = false;
 	let inTasksSection = false;
+	let parentOrigin: ReturnType<typeof extractOrigin> | null = null;
+	let parentIndent = 0;
 
 	for (const line of lines) {
 		const trimmedLower = line.trim().toLowerCase();
@@ -83,6 +114,7 @@ function parseDailyNote(
 			const headingText = normaliseHeading(headingMatch[1] ?? '');
 			inNewTasksSection = headingText === normaliseHeading(settings.addTasksHeading);
 			inTasksSection = false;
+			parentOrigin = null;
 			continue;
 		}
 
@@ -92,7 +124,16 @@ function parseDailyNote(
 			const doneChar = taskMatch[2] ?? ' ';
 			const text = taskMatch[3] ?? '';
 			const indent = indentStr.replace(/\t/g, '    ').length;
-			const origin = extractOrigin(text);
+			let origin = extractOrigin(text);
+			const hasOriginTag = extractDateTag(text) !== null || extractNewTaskTag(text) !== null;
+			if (inTasksSection) {
+				if (hasOriginTag) {
+					parentOrigin = origin;
+					parentIndent = indent;
+				} else if (parentOrigin && indent > parentIndent) {
+					origin = { ...parentOrigin, cleanText: text };
+				}
+			}
 
 			const taskObj: ParsedTask = {
 				raw: line,
@@ -121,8 +162,10 @@ function parseDailyNote(
 			// headings and checkboxes that must not be treated as tasks.
 			inTasksSection = false;
 			inNewTasksSection = false;
+			parentOrigin = null;
 		} else if (inTasksSection && trimmedLower === '') {
 			inTasksSection = false;
+			parentOrigin = null;
 		}
 	}
 
@@ -227,36 +270,17 @@ export async function syncRollover(
 		todos: null,
 	};
 
-	// Collect completed task texts (use clean text without tags)
-	const completedTexts = new Set<string>();
-	for (const task of parsed.pulledTasks) {
-		if (task.done) {
-			completedTexts.add(task.text);
-		}
-	}
-
-	// Remove completed tasks from TODOs (also remove their sub-tasks)
-	for (const scope of ['day', 'week', 'month', 'year', 'scheduled'] as TaskScope[]) {
-		const indicesToRemove = new Set<number>();
-		for (let i = 0; i < data.tasks[scope].length; i++) {
-			const task = data.tasks[scope][i]!;
-			if (completedTexts.has(task.text)) {
-				indicesToRemove.add(i);
-				result.completed.push(task.text);
-				for (let j = i + 1; j < data.tasks[scope].length; j++) {
-					const subTask = data.tasks[scope][j]!;
-					if (subTask.indent > task.indent) {
-						indicesToRemove.add(j);
-					} else {
-						break;
-					}
-				}
-			}
-		}
-		data.tasks[scope] = data.tasks[scope].filter(
-			(_, idx) => !indicesToRemove.has(idx),
-		);
-	}
+	result.completed.push(...removeCompletedTasks(
+		data,
+		parsed.pulledTasks
+			.filter((task) => task.done)
+			.map((task) => ({
+				text: task.text,
+				scope: task.originScope,
+				scheduledDate: task.originDate,
+			})),
+		noteDate.format('DD-MM-YYYY'),
+	));
 
 	// New (D) tasks are collected here and prepended to the day list as a batch
 	// once all new tasks are processed, so the most recently added tasks surface
@@ -349,19 +373,19 @@ export async function syncPreviousNotes(
 	app: App,
 	settings: GreatDaySettings,
 	targetDate: moment.Moment,
-): Promise<SyncResult> {
-	const combined: SyncResult = {
+	lastSuccessfulSyncDate: string | null = null,
+): Promise<SyncBatchResult> {
+	const combined: SyncBatchResult = {
 		rolledBack: [],
 		completed: [],
 		appended: { day: [], week: [], month: [], year: [], scheduled: [] },
 		todos: null,
+		canAdvanceCursor: true,
 	};
 
-	// Walk the whole window rather than stopping at the first synced note. A note
-	// is stamped synced the day *after* it was written, so new tasks added to it
-	// later — or notes sitting behind a gap of skipped days — would otherwise be
-	// abandoned permanently. Re-syncing is idempotent: `syncRollover` guards every
-	// append against a task of the same text already existing in TODOs.
+	// Discover actual daily-note files after the persisted cursor instead of
+	// imposing a fixed lookback. This handles arbitrarily long gaps without
+	// scanning dates for notes that do not exist.
 	//
 	// Sync oldest -> newest and thread the in-memory TODOs state from one sync
 	// into the next. Two reasons:
@@ -372,12 +396,15 @@ export async function syncPreviousNotes(
 	//      it) must be the *final* state after every note is processed. Ending on
 	//      the newest note makes the last write the most complete one.
 	let carried: ReturnType<typeof parseTodos> | null = null;
-	for (let i = 30; i >= 1; i--) {
-		const checkDate = targetDate.clone().subtract(i, 'day');
-		const file = getDailyNoteFile(app, settings, checkDate);
-		if (!file) continue;
-
+	const noteDates = selectPendingNoteDates(
+		app.vault.getMarkdownFiles().map((file) => file.path),
+		settings,
+		targetDate,
+		lastSuccessfulSyncDate,
+	);
+	for (const checkDate of noteDates) {
 		const result = await syncRollover(app, settings, checkDate, targetDate, carried);
+		if (!result.todos) combined.canAdvanceCursor = false;
 		combined.rolledBack.push(...result.rolledBack);
 		combined.completed.push(...result.completed);
 		combined.appended.day.push(...result.appended.day);

@@ -10,8 +10,9 @@ import {
 } from './todosParser';
 import { sampleForScope } from './taskSampler';
 import { parseIcsForDate, type CalendarEvent } from './icsParser';
-import { syncPreviousNotes, convertOverdueScheduled } from './rollover';
+import { convertOverdueScheduled } from './rollover';
 import { dayLong, formatDate } from './dateUtils';
+import type GreatDayPlugin from '../main';
 
 /** Resolves {{year}} in a folder path to the current year. */
 export function resolveFolder(path: string, date: moment.Moment): string {
@@ -283,13 +284,14 @@ export async function generateDailyNoteContent(
 
 /** Creates or opens the daily note for the given date. */
 export async function createDailyNote(
-	app: App,
-	settings: GreatDaySettings,
+	plugin: GreatDayPlugin,
 	date: moment.Moment,
 ): Promise<TFile | null> {
+	const { app, settings } = plugin;
 	const dateStr = formatDate(date, settings.dateFormat);
 	const folder = normalizePath(resolveFolder(settings.dailyNotesFolder, date));
 	const filePath = normalizePath(`${folder}/${dateStr}.md`);
+	const syncResult = await plugin.syncPendingNotes(date);
 
 	// Check if file already exists
 	const existing = app.vault.getAbstractFileByPath(filePath);
@@ -299,8 +301,6 @@ export async function createDailyNote(
 		return existing;
 	}
 
-	// Sync previous unsynced notes before creating a new one
-	const syncResult = await syncPreviousNotes(app, settings, date);
 	const totalSynced =
 		syncResult.completed.length +
 		syncResult.rolledBack.length +

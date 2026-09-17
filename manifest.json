@@ -1,7 +1,7 @@
 {
 	"id": "great-day",
 	"name": "Great Day",
-	"version": "1.5.7",
+	"version": "1.5.11",
 	"minAppVersion": "1.0.0",
 	"description": "Syncs your daily notes with your TODOs — pulls today's exercise, food plan, and sampled tasks into each new daily note, and syncs back at midnight.",
 	"author": "7vik",

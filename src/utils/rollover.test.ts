@@ -18,6 +18,11 @@ import {
 	stripTag,
 	parseTaggedTask,
 } from './todosParser.ts';
+import {
+	removeCompletedTasks,
+	selectPendingDateStrings,
+	taskIdentity,
+} from './syncState.ts';
 import type { TodosData } from '../types.ts';
 
 const TODOS = [
@@ -63,6 +68,99 @@ test('a promoted day task keeps its original scheduled date', () => {
 	const serialised = serialiseTodos(data);
 	assert.match(serialised, /# Day\n[\s\S]*scheduled reminder \(17-09-2026\)/);
 	assert.equal(parseTodos(serialised).tasks.day.at(-1)?.scheduledDate, '17-09-2026');
+});
+
+test('task identity distinguishes duplicate text by scope or scheduled date', () => {
+	assert.notEqual(
+		taskIdentity('Call Alex', 'day', null),
+		taskIdentity('Call Alex', 'week', null),
+	);
+	assert.notEqual(
+		taskIdentity('Call Alex', 'scheduled', '20-09-2026'),
+		taskIdentity('Call Alex', 'scheduled', '21-09-2026'),
+	);
+	assert.equal(
+		taskIdentity('Call Alex', 'scheduled', '20-09-2026'),
+		taskIdentity('Call Alex', 'day', '20-09-2026'),
+	);
+});
+
+test('completing a task preserves duplicates from other scopes and dates', () => {
+	const data = parseTodos([
+		'# Day',
+		'- [ ] Call Alex',
+		'\t- [ ] Prepare notes',
+		'',
+		'# Week',
+		'- [ ] Call Alex',
+		'',
+		'# Month',
+		'',
+		'# Year',
+		'',
+		'# Scheduled',
+		'- [ ] Call Alex (20-09-2026)',
+	].join('\n'));
+
+	assert.deepEqual(removeCompletedTasks(data, [{
+		text: 'Call Alex',
+		scope: 'day',
+		scheduledDate: null,
+	}], '17-09-2026'), ['Call Alex']);
+	assert.deepEqual(data.tasks.day, []);
+	assert.equal(data.tasks.week[0]?.text, 'Call Alex');
+	assert.equal(data.tasks.scheduled[0]?.scheduledDate, '20-09-2026');
+});
+
+test('completed tasks and their children move to a dated completed archive', () => {
+	const data = parseTodos([
+		'# Day',
+		'- [ ] Call Alex',
+		'\t- [ ] Prepare notes',
+		'',
+		'# Week',
+		'',
+		'# Month',
+		'',
+		'# Year',
+		'',
+		'# Scheduled',
+	].join('\n'));
+
+	removeCompletedTasks(data, [{
+		text: 'Call Alex',
+		scope: 'day',
+		scheduledDate: null,
+	}], '17-09-2026');
+
+	const serialised = serialiseTodos(data);
+	assert.match(
+		serialised,
+		/# Completed\n- \[x\] Call Alex \(D\) \(completed 17-09-2026\)\n\t- \[x\] Prepare notes/,
+	);
+	const reparsed = parseTodos(serialised);
+	assert.equal(reparsed.completedTasks[0]?.scope, 'day');
+	assert.equal(reparsed.completedTasks[0]?.completedDate, '17-09-2026');
+	assert.equal(reparsed.completedTasks[1]?.text, 'Prepare notes');
+});
+
+test('pending note discovery is not limited to the previous 30 days', () => {
+	assert.deepEqual(
+		selectPendingDateStrings(
+			['2026-06-01', '2026-09-16'],
+			'2026-09-17',
+			null,
+		),
+		['2026-06-01', '2026-09-16'],
+	);
+	assert.deepEqual(
+		selectPendingDateStrings(
+			['2026-06-01', '2026-09-16'],
+			'2026-09-17',
+			'2026-06-01',
+		),
+		['2026-06-01', '2026-09-16'],
+	);
 });
 
 /** Appends a tagged new task the way syncRollover does. */

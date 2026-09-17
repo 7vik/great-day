@@ -10,6 +10,8 @@ export interface GreatDaySettings {
 	addTasksHeading: string;
 	chillWeekends: boolean;
 	icsCalendarUrl: string;
+	autoRolloverAtMidnight: boolean;
+	lastSuccessfulSyncDate: string;
 	/**
 	 * How many times a week/month/year task must be surfaced in a daily note
 	 * before it gets demoted to the next scope down (week -> day, month ->
@@ -28,6 +30,8 @@ export const DEFAULT_SETTINGS: GreatDaySettings = {
 	addTasksHeading: 'New tasks',
 	chillWeekends: false,
 	icsCalendarUrl: '',
+	autoRolloverAtMidnight: true,
+	lastSuccessfulSyncDate: '',
 	showsBeforeDemotion: 3,
 };
 
@@ -78,6 +82,18 @@ export class GreatDaySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.dateFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.dateFormat = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Auto rollover at midnight')
+			.setDesc('Sync completed and newly added tasks when the calendar day changes.')
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoRolloverAtMidnight)
+					.onChange(async (value) => {
+						this.plugin.settings.autoRolloverAtMidnight = value;
 						await this.plugin.saveSettings();
 					}),
 			);

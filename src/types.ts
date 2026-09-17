@@ -24,6 +24,11 @@ export interface Task {
 	shownCount: number;
 }
 
+export interface CompletedTask extends Task {
+	/** Date the task was completed, formatted as DD-MM-YYYY. */
+	completedDate: string;
+}
+
 /** Parsed contents of TODOs.md. */
 export interface TodosData {
 	/** Raw file text. */
@@ -34,6 +39,8 @@ export interface TodosData {
 	exercisePlanText: string;
 	/** Tasks grouped by scope. */
 	tasks: Record<TaskScope, Task[]>;
+	/** Completed tasks retained for reference, newest first. */
+	completedTasks: CompletedTask[];
 }
 
 /** Metadata for a task added in a daily note (marked with (D), (M), (Y), (W)). */
@@ -48,7 +55,7 @@ export interface NewTaskTag {
 export interface SyncResult {
 	/** Tasks moved back to TODOs (were unchecked in daily note). */
 	rolledBack: string[];
-	/** Tasks removed from TODOs (were checked in daily note). */
+	/** Tasks moved to the Completed archive (were checked in a daily note). */
 	completed: string[];
 	/** New tasks appended to TODOs (had scope tags). */
 	appended: Record<TaskScope, string[]>;
@@ -61,4 +68,9 @@ export interface SyncResult {
 	 * stale copy silently erases whatever the sync just appended.
 	 */
 	todos: TodosData | null;
+}
+
+export interface SyncBatchResult extends SyncResult {
+	/** Whether every discovered note was synced and the persisted cursor may advance. */
+	canAdvanceCursor: boolean;
 }
