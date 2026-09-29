@@ -13,7 +13,7 @@ import {
 } from './todosParser';
 import { getDailyNoteFile, resolveFolder } from './dailyNoteGenerator';
 import { formatDate } from './dateUtils';
-import { removeCompletedTasks, selectPendingDateStrings } from './syncState';
+import { RESYNC_WINDOW_DAYS, removeCompletedTasks, selectPendingDateStrings } from './syncState';
 
 /** Marker written at the end of a daily note after rollover to prevent double-sync. */
 const SYNCED_MARKER = '<!-- great-day-synced -->';
@@ -45,6 +45,7 @@ export function selectPendingNoteDates(
 		[...dates.keys()],
 		targetDate.format('YYYY-MM-DD'),
 		lastSuccessfulSyncDate,
+		targetDate.clone().subtract(RESYNC_WINDOW_DAYS, 'days').format('YYYY-MM-DD'),
 	).map((date) => dates.get(date)!);
 }
 
@@ -344,8 +345,12 @@ export async function syncRollover(
 	// keeps working with TODOs after this point must use `result.todos`: reading
 	// the file back can return Obsidian's cached pre-write content, and
 	// serialising that stale copy would erase the tasks just appended above.
+	// Skip no-op writes: resyncs are triggered by vault modify events, and an
+	// unconditional write would retrigger them (and churn Obsidian Sync).
 	const newTodos = serialiseTodos(data);
-	await app.vault.modify(todosFile, newTodos);
+	if (newTodos !== await app.vault.read(todosFile)) {
+		await app.vault.modify(todosFile, newTodos);
+	}
 	result.todos = data;
 
 	// Mark the daily note as synced. Strip *every* existing marker, not just the
@@ -354,7 +359,9 @@ export async function syncRollover(
 	// new-tasks section, splitting it in two).
 	let updatedContent = dailyContent.split(SYNCED_MARKER).join('').trimEnd();
 	updatedContent += '\n\n' + SYNCED_MARKER + '\n';
-	await app.vault.modify(dailyFile, updatedContent);
+	if (updatedContent !== dailyContent) {
+		await app.vault.modify(dailyFile, updatedContent);
+	}
 
 	// Collect rolledBack (unchecked pulled tasks)
 	for (const task of parsed.pulledTasks) {

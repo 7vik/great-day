@@ -50,7 +50,11 @@ test('new task tags are classified before their suffix is stripped', () => {
 		scope: 'day',
 		scheduledDate: null,
 	});
-	assert.equal(parseTaggedTask('task without a tag'), null);
+	assert.deepEqual(parseTaggedTask('task without a tag'), {
+		text: 'task without a tag',
+		scope: 'day',
+		scheduledDate: null,
+	});
 });
 
 test('a promoted day task keeps its original scheduled date', () => {

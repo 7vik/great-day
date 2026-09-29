@@ -292,8 +292,9 @@ export function parseTaggedTask(text: string): {
 		};
 	}
 
+	// Untagged tasks default to (D): a forgotten tag shouldn't drop the task.
 	const tag = extractNewTaskTag(text);
-	if (!tag) return null;
+	if (!tag) return { text: text.trimEnd(), scope: 'day', scheduledDate: null };
 	return {
 		text: stripTag(text),
 		scope: tag.scope,

@@ -95,7 +95,7 @@ function urgencySuffix(scope: TaskScope, scheduledDate: string | null): string {
 }
 
 /** Formats a task and its children as checkbox lines with urgency tags. */
-function formatTaskLines(tasks: Task[], startIndent: number): string[] {
+export function formatTaskLines(tasks: Task[], startIndent: number): string[] {
 	const lines: string[] = [];
 	for (const task of tasks) {
 		const indent = '\t'.repeat(startIndent + (task.indent > 0 ? 1 : 0));
@@ -341,4 +341,46 @@ export function getDailyNoteFile(
 	const file = app.vault.getAbstractFileByPath(filePath);
 	if (file && file instanceof TFile) return file;
 	return null;
+}
+
+/**
+ * Adds tasks to an already-generated daily note's Tasks block.
+ *
+ * Used when a resync picks up new tasks after today's note was generated —
+ * typically because the previous note's edits arrived via Obsidian Sync from
+ * another device after this one had already created today's note. Tasks whose
+ * text already appears in the note are skipped. Returns the texts inserted.
+ */
+export async function addTasksToNote(
+	app: App,
+	settings: GreatDaySettings,
+	date: moment.Moment,
+	tasks: Task[],
+): Promise<string[]> {
+	const file = getDailyNoteFile(app, settings, date);
+	if (!file || tasks.length === 0) return [];
+
+	const content = await app.vault.read(file);
+	const missing = tasks.filter((task) => !content.includes(task.text));
+	if (missing.length === 0) return [];
+
+	const lines = content.split('\n');
+	const newLines = formatTaskLines(missing, 1);
+	const tasksIndex = lines.findIndex((line) => /^- \[[ xX]\] Tasks\s*$/.test(line));
+	if (tasksIndex >= 0) {
+		let end = tasksIndex + 1;
+		while (end < lines.length && /^\s+\S/.test(lines[end] ?? '')) end++;
+		lines.splice(end, 0, ...newLines);
+	} else {
+		// No Tasks block (e.g. nothing was due that day): create one above the
+		// new-tasks heading, or at the top after the title if there isn't one.
+		const headingIndex = lines.findIndex((line) =>
+			/^#+\s+/.test(line) &&
+			line.replace(/^#+\s+/, '').trim().toLowerCase().replace(/[:\s]+$/, '') ===
+				settings.addTasksHeading.trim().toLowerCase().replace(/[:\s]+$/, ''));
+		const at = headingIndex >= 0 ? headingIndex : Math.min(1, lines.length);
+		lines.splice(at, 0, '- [ ] Tasks', ...newLines);
+	}
+	await app.vault.modify(file, lines.join('\n'));
+	return missing.map((task) => task.text);
 }

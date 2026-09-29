@@ -16,14 +16,28 @@ export function taskIdentity(
 		: `${text}\u0000scope\u0000${scope}`;
 }
 
+/**
+ * How many days back every sync re-reads, regardless of the cursor. With
+ * Obsidian Sync across devices, a note can be synced on one device before the
+ * edits made on another device have arrived; re-reading a trailing window picks
+ * up those late edits the next time any sync runs. Re-syncing a note is
+ * idempotent, so this is safe.
+ */
+export const RESYNC_WINDOW_DAYS = 30;
+
 export function selectPendingDateStrings(
 	candidateDates: string[],
 	targetDate: string,
 	lastSuccessfulSyncDate: string | null,
+	/** Earliest date always included (YYYY-MM-DD), even if before the cursor. */
+	windowStart: string | null = null,
 ): string[] {
+	const lowerBound = lastSuccessfulSyncDate && windowStart
+		? (lastSuccessfulSyncDate < windowStart ? lastSuccessfulSyncDate : windowStart)
+		: lastSuccessfulSyncDate ?? windowStart;
 	return candidateDates
 		.filter((date) => date < targetDate)
-		.filter((date) => !lastSuccessfulSyncDate || date >= lastSuccessfulSyncDate)
+		.filter((date) => !lowerBound || date >= lowerBound)
 		.sort((left, right) => left.localeCompare(right));
 }
 
