@@ -150,7 +150,11 @@ export function parseTodos(raw: string): TodosData {
 
 		// Parse task lines in task sections
 		const taskMatch = line.match(TASK_RE);
-		if (taskMatch && currentSection === 'completed') {
+		// Archived lines can end up under an active heading when an older plugin
+		// version (which doesn't know `# Completed`) rewrites the file; recognise
+		// them by their completion stamp and keep them in the archive.
+		const isArchivedLine = !!taskMatch && taskMatch[2] !== ' ' && COMPLETED_DATE_RE.test(taskMatch[3] ?? '');
+		if (taskMatch && (currentSection === 'completed' || isArchivedLine)) {
 			const indentStr = taskMatch[1] ?? '';
 			const rawText = taskMatch[3] ?? '';
 			const completedDate = extractCompletedDate(rawText) ?? completedParent?.completedDate;
@@ -169,8 +173,11 @@ export function parseTodos(raw: string): TodosData {
 				shownCount: 0,
 				completedDate: completedDate ?? '',
 			};
-			completedTasks.push(completedTask);
 			if (completedTask.indent === 0) completedParent = completedTask;
+			const isDuplicate = completedTask.indent === 0 && completedTasks.some((t) =>
+				t.indent === 0 && t.text === completedTask.text && t.scope === completedTask.scope &&
+				t.scheduledDate === completedTask.scheduledDate && t.completedDate === completedTask.completedDate);
+			if (!isDuplicate) completedTasks.push(completedTask);
 		} else if (taskMatch && currentSection && (currentSection === 'day' || currentSection === 'week' || currentSection === 'month' || currentSection === 'year' || currentSection === 'scheduled')) {
 			const indentStr = taskMatch[1] ?? '';
 			const doneChar = taskMatch[2] ?? ' ';
@@ -286,7 +293,7 @@ export function parseTaggedTask(text: string): {
 	const scheduledDate = extractDateTag(text);
 	if (scheduledDate) {
 		return {
-			text: stripDateTag(text),
+			text: normaliseTaskText(stripDateTag(text)),
 			scope: 'scheduled',
 			scheduledDate,
 		};
@@ -294,12 +301,22 @@ export function parseTaggedTask(text: string): {
 
 	// Untagged tasks default to (D): a forgotten tag shouldn't drop the task.
 	const tag = extractNewTaskTag(text);
-	if (!tag) return { text: text.trimEnd(), scope: 'day', scheduledDate: null };
+	if (!tag) return { text: normaliseTaskText(text), scope: 'day', scheduledDate: null };
 	return {
-		text: stripTag(text),
+		text: normaliseTaskText(stripTag(text)),
 		scope: tag.scope,
 		scheduledDate: null,
 	};
+}
+
+/**
+ * Canonical form of task text for duplicate checks. Whitespace is collapsed
+ * because editors, linters and Obsidian Sync can collapse runs of spaces in one
+ * copy of a task but not another; an exact comparison then never matches and
+ * the task is re-added on every sync.
+ */
+export function normaliseTaskText(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
 }
 
 /** Removes the scope tag from task text. */

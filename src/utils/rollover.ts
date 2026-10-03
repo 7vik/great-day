@@ -10,6 +10,7 @@ import {
 	stripDateTag,
 	serialiseTodos,
 	parseTaggedTask,
+	normaliseTaskText,
 } from './todosParser';
 import { getDailyNoteFile, resolveFolder } from './dailyNoteGenerator';
 import { formatDate } from './dateUtils';
@@ -201,7 +202,7 @@ export function convertOverdueScheduled(
 			const taskDate = moment(task.scheduledDate, 'DD-MM-YYYY');
 			if (taskDate.isValid() && taskDate.isSameOrBefore(dueBy, 'day')) {
 				// Avoid creating a duplicate if an identical day task already exists.
-				if (!data.tasks.day.some((t) => t.text === task.text)) {
+				if (!data.tasks.day.some((t) => normaliseTaskText(t.text) === normaliseTaskText(task.text))) {
 					due.push({ ...task, scope: 'day' });
 				}
 				continue;
@@ -289,15 +290,29 @@ export async function syncRollover(
 	// unshifting one at a time) preserves the order they were written in.
 	const newDayTasks: Task[] = [];
 
+	// Tasks already archived as completed on or after this note's date. Notes in
+	// the resync window are re-read every sync, so without this a task added in
+	// one note and ticked in a later one would be re-added, then re-archived, on
+	// every pass — piling duplicates into Completed.
+	const completedSince = new Set(
+		data.completedTasks
+			.filter((task) => {
+				const date = moment(task.completedDate, 'DD-MM-YYYY', true);
+				return !date.isValid() || date.isSameOrAfter(noteDate, 'day');
+			})
+			.map((task) => normaliseTaskText(task.text)),
+	);
+
 	// Process new tasks
 	for (const task of parsed.newTasks) {
 		if (task.done) continue;
 		const taggedTask = parseTaggedTask(task.sourceText);
 		if (!taggedTask?.text.trim()) continue;
+		if (completedSince.has(taggedTask.text)) continue;
 
 		if (taggedTask.scope === 'scheduled' && taggedTask.scheduledDate) {
 			// Avoid duplicates
-			if (!data.tasks.scheduled.some(t => t.text === taggedTask.text && t.scheduledDate === taggedTask.scheduledDate)) {
+			if (!data.tasks.scheduled.some(t => normaliseTaskText(t.text) === taggedTask.text && t.scheduledDate === taggedTask.scheduledDate)) {
 				data.tasks.scheduled.push({
 					raw: `- [ ] ${taggedTask.text} (${taggedTask.scheduledDate})`,
 					text: taggedTask.text,
@@ -313,7 +328,8 @@ export async function syncRollover(
 		}
 
 		if (taggedTask.scope !== 'scheduled') {
-			if (!data.tasks[taggedTask.scope].some(t => t.text === taggedTask.text)) {
+			if (!data.tasks[taggedTask.scope].some(t => normaliseTaskText(t.text) === taggedTask.text)
+				&& !newDayTasks.some(t => t.text === taggedTask.text)) {
 				const newTask: Task = {
 					raw: `- [ ] ${taggedTask.text}`,
 					text: taggedTask.text,
@@ -340,6 +356,15 @@ export async function syncRollover(
 	if (newDayTasks.length > 0) {
 		data.tasks.day.unshift(...newDayTasks);
 	}
+
+	// Prune the Completed archive. It exists only so resyncs don't resurrect
+	// finished tasks, so nothing older than the resync window (plus slack) is
+	// needed.
+	const keepCompletedFrom = dueDate.clone().subtract(RESYNC_WINDOW_DAYS + 5, 'days');
+	data.completedTasks = data.completedTasks.filter((task) => {
+		const date = moment(task.completedDate, 'DD-MM-YYYY', true);
+		return !date.isValid() || date.isSameOrAfter(keepCompletedFrom, 'day');
+	});
 
 	// Write back TODOs, and hand the in-memory state to the caller. Anything that
 	// keeps working with TODOs after this point must use `result.todos`: reading

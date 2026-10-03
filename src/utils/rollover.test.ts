@@ -357,3 +357,22 @@ test('serialising never fuses two tasks onto one line', () => {
 		assert.ok(checkboxes.length <= 1, `line has ${checkboxes.length} checkboxes: ${line}`);
 	}
 });
+
+test('new task text is whitespace-normalised so dedup survives collapsed spaces', () => {
+	assert.equal(parseTaggedTask('Apply here  https://x.org (D)')?.text, 'Apply here https://x.org');
+});
+
+test('archived lines under an active heading are kept in Completed, deduplicated', () => {
+	const data = parseTodos([
+		'# Day', '', '# Week', '', '# Month', '', '# Year', '',
+		'# Scheduled',
+		'- [x] Email marcin (D) (completed 10-09-2026)',
+		'',
+		'# Completed',
+		'- [x] Email marcin (D) (completed 10-09-2026)',
+		'- [x] Email marcin (D) (completed 10-09-2026)',
+	].join('\n'));
+	assert.equal(data.tasks.scheduled.length, 0);
+	assert.equal(data.completedTasks.length, 1);
+	assert.equal(data.completedTasks[0]?.text, 'Email marcin');
+});

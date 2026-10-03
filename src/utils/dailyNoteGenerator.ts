@@ -7,6 +7,7 @@ import {
 	getExerciseForDay,
 	getReminders,
 	serialiseTodos,
+	normaliseTaskText,
 } from './todosParser';
 import { sampleForScope } from './taskSampler';
 import { parseIcsForDate, type CalendarEvent } from './icsParser';
@@ -361,7 +362,14 @@ export async function addTasksToNote(
 	if (!file || tasks.length === 0) return [];
 
 	const content = await app.vault.read(file);
-	const missing = tasks.filter((task) => !content.includes(task.text));
+	const present = normaliseTaskText(content);
+	const seen = new Set<string>();
+	const missing = tasks.filter((task) => {
+		const key = normaliseTaskText(task.text);
+		if (present.includes(key) || seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 	if (missing.length === 0) return [];
 
 	const lines = content.split('\n');
