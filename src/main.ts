@@ -35,8 +35,8 @@ export default class GreatDayPlugin extends Plugin {
 			// Obsidian Sync can deliver another device's edits to a past daily
 			// note (or to TODOs.md) *after* this device has already synced it —
 			// e.g. tasks added last night on the phone arrive minutes after the
-			// laptop opened and generated today's note. Resync whenever that
-			// happens so late-arriving tasks still land in TODOs and today's note.
+			// laptop opened and generated today's note. Resync whenever a past note
+			// changes so late-arriving tasks still land in TODOs and today's note.
 			this.registerEvent(this.app.vault.on('modify', (file) => this.onVaultChange(file)));
 			this.registerEvent(this.app.vault.on('create', (file) => this.onVaultChange(file)));
 		});
@@ -51,11 +51,14 @@ export default class GreatDayPlugin extends Plugin {
 		if (!(file instanceof TFile) || file.extension !== 'md') return;
 		if (this.pendingSync || Date.now() < this.ignoreEventsUntil) return;
 
-		const isTodos = file.path === normalizePath(this.settings.todosFilePath);
+		// Only past daily notes trigger a resync — never TODOs.md itself. Every
+		// device runs this watcher, so reacting to TODOs.md changes made all
+		// devices rewrite it within seconds of any edit, and Obsidian Sync's merge
+		// of those near-simultaneous writes resurrected deleted lines.
 		const isRecentPastNote = selectPendingNoteDates(
 			[file.path], this.settings, moment(), null,
 		).length > 0;
-		if (!isTodos && !isRecentPastNote) return;
+		if (!isRecentPastNote) return;
 
 		// Debounce: sync writes files in bursts, and so does typing.
 		if (this.resyncTimer !== null) window.clearTimeout(this.resyncTimer);
