@@ -328,7 +328,11 @@ export async function syncRollover(
 		}
 
 		if (taggedTask.scope !== 'scheduled') {
-			if (!data.tasks[taggedTask.scope].some(t => normaliseTaskText(t.text) === taggedTask.text)
+			// Check every active scope, not just the tagged one: a (W) task may since
+			// have been demoted to Day, and re-reading its source note must not
+			// put a second copy back in Week.
+			const activeScopes: TaskScope[] = ['day', 'week', 'month', 'year'];
+			if (!activeScopes.some(scope => data.tasks[scope].some(t => normaliseTaskText(t.text) === taggedTask.text))
 				&& !newDayTasks.some(t => t.text === taggedTask.text)) {
 				const newTask: Task = {
 					raw: `- [ ] ${taggedTask.text}`,
