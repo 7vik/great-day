@@ -22,6 +22,7 @@ import {
 	removeCompletedTasks,
 	selectPendingDateStrings,
 	taskIdentity,
+	dedupeTasks,
 } from './syncState.ts';
 import type { TodosData } from '../types.ts';
 
@@ -375,4 +376,21 @@ test('archived lines under an active heading are kept in Completed, deduplicated
 	assert.equal(data.tasks.scheduled.length, 0);
 	assert.equal(data.completedTasks.length, 1);
 	assert.equal(data.completedTasks[0]?.text, 'Email marcin');
+});
+
+test('duplicate tasks from concurrent device appends are collapsed', () => {
+	const data = parseTodos([
+		'# Day',
+		'- [ ] Prepare for Sampura',
+		'- [ ] Other task',
+		'- [ ] Prepare for Sampura',
+		'\t- [ ] book room',
+		'',
+		'# Week',
+		'- [ ] Other task',
+		'', '# Month', '', '# Year', '', '# Scheduled', '',
+	].join('\n'));
+	assert.deepEqual(dedupeTasks(data), ['Prepare for Sampura', 'Other task']);
+	assert.deepEqual(data.tasks.day.map((t) => t.text), ['Prepare for Sampura', 'book room', 'Other task']);
+	assert.equal(data.tasks.week.length, 0);
 });

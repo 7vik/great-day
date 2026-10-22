@@ -14,7 +14,7 @@ import {
 } from './todosParser';
 import { getDailyNoteFile, resolveFolder } from './dailyNoteGenerator';
 import { formatDate } from './dateUtils';
-import { RESYNC_WINDOW_DAYS, removeCompletedTasks, selectPendingDateStrings } from './syncState';
+import { RESYNC_WINDOW_DAYS, dedupeTasks, removeCompletedTasks, selectPendingDateStrings } from './syncState';
 
 /** Marker written at the end of a daily note after rollover to prevent double-sync. */
 const SYNCED_MARKER = '<!-- great-day-synced -->';
@@ -264,6 +264,7 @@ export async function syncRollover(
 
 	// Promote scheduled tasks that have come due (relative to today) to day tasks
 	convertOverdueScheduled(data, dueDate.format('DD-MM-YYYY'));
+	dedupeTasks(data);
 
 	const result: SyncResult = {
 		rolledBack: [],
